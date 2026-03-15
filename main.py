@@ -1,5 +1,5 @@
 """
-Zap – 100% voice-operated student assistant.
+Zap – 100% voice-operated student assistant. t
 Session disabled for now (can re-add later). Focus: fast STT -> LLM -> TTS.
 """
 import logging

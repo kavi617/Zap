@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "path": "c:/Kavinayan_Projects/Ai_voice_assistant",
+      "name": "Zap"
+    }
+  ],
+  "settings": {
+    "git.autoRepositoryDetection": true,
+    "git.detectSubmodules": true
+  }
+}
