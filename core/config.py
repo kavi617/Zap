@@ -34,7 +34,7 @@ def _env_bool(key: str, default: bool) -> bool:
 
 # Ollama – num_predict caps tokens for faster replies
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = _env("OLLAMA_MODEL")
+OLLAMA_MODEL = _env("OLLAMA_MODEL", "qwen2:0.5b")
 OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 60)
 OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 80)
 
