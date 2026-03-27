@@ -1,10 +1,12 @@
-"""Voice input: wake word + microphone recording."""
+"""Voice input: wake word + VAD recording (fast end-of-speech)."""
 import logging
 import struct
+import threading
 from pathlib import Path
 
-from core import config
 import pyaudio
+
+from core import config
 
 logger = logging.getLogger(__name__)
 FORMAT = pyaudio.paInt16
@@ -22,7 +24,6 @@ def _is_silence(chunk: bytes, threshold: float) -> bool:
 
 
 def _play_wake_sfx() -> None:
-    """Play heyzap.mp3 when wake word detected; block until done."""
     path = getattr(config, "WAKE_SFX_PATH", "") or ""
     if not path:
         return
@@ -31,7 +32,7 @@ def _play_wake_sfx() -> None:
 
 
 def record_audio() -> bytes:
-    """Record from default mic until silence or max time. Returns raw PCM 16-bit mono."""
+    """Record until ~SILENCE_END_MS after speech ends (energy VAD). No fixed window."""
     p = pyaudio.PyAudio()
     try:
         stream = p.open(
@@ -45,13 +46,16 @@ def record_audio() -> bytes:
         logger.error("Failed to open microphone: %s", e)
         raise
     try:
-        frames = []
-        silent_chunks = 0
-        silence_limit = int(1.5 * config.SAMPLE_RATE / config.CHUNK_SIZE)
+        silence_ms = getattr(config, "SILENCE_END_MS", 300)
+        silence_limit = max(
+            1,
+            int(silence_ms / 1000.0 * config.SAMPLE_RATE / config.CHUNK_SIZE),
+        )
         min_chunks = int(config.MIN_SPEECH_LENGTH * config.SAMPLE_RATE / config.CHUNK_SIZE)
         max_chunks = int(config.RECORD_SECONDS * config.SAMPLE_RATE / config.CHUNK_SIZE)
+        frames = []
+        silent_chunks = 0
         speech_started = False
-        logger.info("Listening...")
         for _ in range(max_chunks):
             chunk = stream.read(config.CHUNK_SIZE, exception_on_overflow=False)
             frames.append(chunk)
@@ -73,7 +77,7 @@ def record_audio() -> bytes:
 
 
 def wait_for_wake_word() -> bool:
-    """Block until wake word detected. Play heyzap.mp3 fully, then return True."""
+    """Wake word detected → SFX in background; return immediately so STT can start in parallel."""
     if not config.WAKE_WORD_ENABLED:
         return True
     try:
@@ -107,17 +111,14 @@ def wait_for_wake_word() -> bool:
         channels=1,
         format=pyaudio.paInt16,
         input=True,
-        input_device_index=7,
         frames_per_buffer=porcupine.frame_length,
     )
     try:
-        logger.info("Say Hey Zap (or wake word)...")
         while True:
             chunk = stream.read(porcupine.frame_length, exception_on_overflow=False)
             frame = struct.unpack_from("h" * porcupine.frame_length, chunk)
             if porcupine.process(list(frame)) >= 0:
-                logger.info("Wake word detected.")
-                _play_wake_sfx()
+                threading.Thread(target=_play_wake_sfx, name="wake_sfx", daemon=True).start()
                 return True
     except KeyboardInterrupt:
         return False

@@ -1,24 +1,20 @@
 """
-Streaming TTS: queue-based playback (Kokoro optional, Piper fallback).
-Chunks split at punctuation; synth in background thread while playing.
+Streaming TTS: producer/consumer queues — synth runs ahead of playback for gapless audio.
+LLM yields text chunks independently; never blocks the LLM thread on playback.
 """
 import logging
+import os
 import queue
 import re
 import threading
-import tempfile
-import os
-
-from core import config
 
 logger = logging.getLogger(__name__)
 
 _prewarmed = False
-_kokoro_pipeline = None
 
 
 def prewarm() -> None:
-    global _prewarmed, _kokoro_pipeline
+    global _prewarmed
     if _prewarmed:
         return
     try:
@@ -30,26 +26,26 @@ def prewarm() -> None:
     logger.info("TTS pipeline prewarmed.")
 
 
-def _split_chunks(text: str, max_words: int = 12) -> list[str]:
+def _split_chunks(text: str, max_words: int = 14) -> list[str]:
     text = (text or "").strip()
     if not text:
         return []
-    parts = re.split(r"(?<=[.!?])\s+|(?<=,)\s+|(?<=\s)\band\s+", text, flags=re.I)
+    parts = re.split(r"(?<=[.!?])\s+|(?<=,)\s+|(?<=\s)\band\s+|(?<=\s)\bbut\s+", text, flags=re.I)
     chunks = []
-    buf = []
+    buf: list[str] = []
     wcount = 0
     for p in parts:
         p = p.strip()
         if not p:
             continue
         words = len(p.split())
-        if buf and wcount + words > max_words and "," not in p and "." not in p:
+        if buf and wcount + words > max_words and not re.search(r"[,.!?]", p):
             chunks.append(" ".join(buf).strip())
             buf = []
             wcount = 0
         buf.append(p)
         wcount += words
-        if wcount >= 5 and ("," in p or "." in p or "!" in p or "?" in p):
+        if wcount >= 4 and (re.search(r"[,.!?]\s*$", p) or wcount >= max_words):
             chunks.append(" ".join(buf).strip())
             buf = []
             wcount = 0
@@ -68,46 +64,64 @@ def _synth_chunk(text: str) -> str | None:
 
 
 def speak_streaming(full_text: str) -> None:
-    """Synthesize and play in overlapping pipeline (queue + threads)."""
-    chunks = _split_chunks(full_text)
-    if not chunks:
-        return
-    from core.voice import output
+    """Backward compat: one reply split into chunks with pipeline."""
+    speak_streaming_pipeline(iter(_split_chunks(full_text)))
 
-    q: queue.Queue[str | None] = queue.Queue(maxsize=4)
-    done = threading.Event()
 
-    def producer():
-        for ch in chunks:
-            path = _synth_chunk(ch)
-            if path:
-                q.put(path)
-        q.put(None)
+def speak_streaming_pipeline(text_chunk_iterator):
+    """
+    Continuous audio from an iterator of text strings (e.g. LLM phrase chunks).
+    Text queue → synth → wav queue → playback; synth stays ahead of playback.
+    """
+    text_q: queue.Queue[str | None] = queue.Queue(maxsize=32)
+    wav_q: queue.Queue[str | None] = queue.Queue(maxsize=8)
 
-    def consumer():
+    def feed_text():
+        try:
+            for ch in text_chunk_iterator:
+                if not ch:
+                    continue
+                for sub in _split_chunks(ch):
+                    text_q.put(sub)
+        finally:
+            text_q.put(None)
+
+    def synth_worker():
         while True:
-            item = q.get()
-            if item is None:
-                break
+            txt = text_q.get()
+            if txt is None:
+                wav_q.put(None)
+                return
+            path = _synth_chunk(txt)
+            if path:
+                wav_q.put(path)
+
+    def play_worker():
+        from core.voice import output
+        while True:
+            path = wav_q.get()
+            if path is None:
+                return
             try:
-                output.play_wav_file(item)
+                output.play_wav_file(path)
             finally:
-                if os.path.isfile(item):
+                if os.path.isfile(path):
                     try:
-                        os.remove(item)
+                        os.remove(path)
                     except OSError:
                         pass
-            q.task_done()
 
-    t1 = threading.Thread(target=producer, daemon=True)
-    t2 = threading.Thread(target=consumer, daemon=True)
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+    t_feed = threading.Thread(target=feed_text, name="tts_feed", daemon=True)
+    t_syn = threading.Thread(target=synth_worker, name="tts_synth", daemon=True)
+    t_play = threading.Thread(target=play_worker, name="tts_play", daemon=True)
+    t_feed.start()
+    t_syn.start()
+    t_play.start()
+    t_feed.join()
+    t_syn.join()
+    t_play.join()
 
 
 def speak_simple(text: str) -> None:
-    """Non-streaming short reply."""
     from core.voice import tts
     tts.speak(text)

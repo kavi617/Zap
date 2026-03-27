@@ -7,7 +7,6 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from core import config
 
@@ -105,6 +104,12 @@ def _check_once(warned: set[str]) -> set[str]:
         logger.debug("Planner warning check: %s", e)
 
     for key, msg in alerts:
+        try:
+            from core import console_ui
+            ev = msg.split(":", 1)[-1].strip()[:60]
+            console_ui.warn_daemon(ev)
+        except Exception:
+            pass
         _play_warning_sfx()
         _announce(msg)
         warned.add(key)

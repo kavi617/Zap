@@ -38,26 +38,28 @@ OLLAMA_MODEL = _env("OLLAMA_MODEL", "smollm2:135m")
 OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 60)
 OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 80)
 
-# Tutor + planner system prompt
+# Tutor + planner system prompt — short, conversational voice (addon)
 SYSTEM_PROMPT = _env(
     "SYSTEM_PROMPT",
-    """You are a student voice assistant: tutor and homework planner. Be accurate and brief for voice (1-3 sentences when possible).
-Rules: Use simple language. Give clear final answers. For math, show key steps then answer.
-Homework commands (reply in one short sentence, then on a NEW LINE output exactly one of):
-- To add: ADD|subject|assignment name|due date and time|estimated time 
-- To list: LIST
-- To mark done: DONE|assignment name or number
-- To remove: REMOVE|assignment name or number
-If the user just asks a question (no homework command), answer only. No ADD/LIST/DONE/REMOVE line.""",
+    """You are Zap, a friendly student voice assistant. Keep replies short and natural, like a helpful human — not a textbook.
+No bullet points unless the user asks. No long lectures unless they ask for detail. Sound conversational.
+You also track homework. When they want planner actions, reply with one short spoken line, then on a NEW LINE exactly one of:
+- ADD|subject|assignment name|due date and time|estimated time
+- LIST
+- DONE|assignment name or number
+- REMOVE|assignment name or number
+For normal questions (no homework command), just answer briefly. No ADD/LIST/DONE/REMOVE line.""",
 )
 
 # Audio
 SAMPLE_RATE = _env_int("SAMPLE_RATE", 16000)
 CHANNELS = _env_int("CHANNELS", 1)
 CHUNK_SIZE = _env_int("CHUNK_SIZE", 1024)
-RECORD_SECONDS = _env_int("RECORD_SECONDS", 10)
+RECORD_SECONDS = _env_int("RECORD_SECONDS", 30)
 SILENCE_THRESHOLD = _env_float("SILENCE_THRESHOLD", 0.01)
-MIN_SPEECH_LENGTH = _env_float("MIN_SPEECH_LENGTH", 0.5)
+MIN_SPEECH_LENGTH = _env_float("MIN_SPEECH_LENGTH", 0.2)
+# End speech ~300ms after silence (energy VAD)
+SILENCE_END_MS = _env_int("SILENCE_END_MS", 300)
 
 # Whisper – use tiny + faster-whisper for ~2–4s (vs 10s+ with stock)
 USE_FASTER_WHISPER = _env_bool("USE_FASTER_WHISPER", True)

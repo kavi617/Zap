@@ -110,4 +110,4 @@ def prewarm() -> None:
 
 
 def google_error_message() -> str:
-    return "I am having trouble connecting to Google right now."
+    return "I'm having trouble connecting to Google right now."

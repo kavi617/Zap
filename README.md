@@ -1,6 +1,15 @@
-# Zap – Voice-Only Student Assistant
+# Zap – Voice Student Assistant
 
-**100% voice-operated.** Planner, Google Calendar / Docs / Gmail (optional OAuth), streaming TTS, and a due-soon warning daemon.
+Offline-capable voice loop with **Whisper**, **Ollama**, **Piper** TTS, optional **Porcupine** wake word, **homework planner** (SQLite), and optional **Google** Calendar / Docs / Gmail via OAuth.
+
+## Features
+
+- **Wake word** + optional `assets/heyzap.mp3` (non-blocking — STT can start immediately).
+- **Fast VAD** — recording ends ~**300 ms** after silence (`SILENCE_END_MS` in `.env`).
+- **Streaming TTS** — text queue → synthesize → play (chunked, low gaps).
+- **Google** (optional): calendar (natural language), rich **Docs** (headings + bold), **Gmail** summaries (no full bodies read aloud).
+- **Warning daemon** — every 5 minutes, events due within 1 hour: optional `assets/warning.mp3` + voice; deduped in `data/warning_warned.json`.
+- **Competition-style terminal** — banner, colored status lines, stderr filter for ALSA/JACK noise (see `core/console_ui.py`).
 
 ## Folder structure
 
@@ -9,61 +18,59 @@ Ai_voice_assistant/
 ├── main.py
 ├── requirements.txt
 ├── .env
+├── ADDON_IMPLEMENTATION.md   # Changelog for addon overhaul
+├── CREDENTIALS.md            # OAuth setup
 ├── core/
 │   ├── config.py
-│   ├── credentials.json   # OAuth client (not in git — copy yours)
-│   ├── token.json         # Created after first Google login
+│   ├── console_ui.py         # Terminal UX
+│   ├── credentials.json      # (you add; gitignored)
+│   ├── token.json            # Created after OAuth (gitignored)
 │   ├── session.py
-│   ├── tts_stream.py      # Chunked streaming playback
-│   ├── llm_stream.py      # Ollama streaming deltas
-│   ├── warning_daemon.py  # Checks every 5 min for due-within-1-hour
-│   └── voice/             # input, stt, llm, tts, output
+│   ├── tts_stream.py         # Streaming TTS pipeline
+│   ├── llm_stream.py         # Ollama streaming deltas
+│   ├── warning_daemon.py
+│   └── voice/                # input, stt, llm, tts, output
 ├── features/
 │   ├── planner.py
-│   └── google/            # auth, calendar, docs, gmail, router
-└── assets/                # heyzap.mp3, warning.mp3 (optional)
+│   └── google/
+│       ├── auth.py
+│       ├── calendar.py
+│       ├── docs.py
+│       ├── docs_format.py    # Markdown → Docs API requests
+│       ├── gmail.py
+│       └── router.py
+├── assets/                   # heyzap.mp3, warning.mp3
+└── data/                     # planner.db, warning_warned.json
 ```
 
 ## Run
 
 ```bash
 pip install -r requirements.txt
-ollama pull qwen2:0.5b   # or your OLLAMA_MODEL
+ollama pull <your-model>   # match OLLAMA_MODEL in .env
 python main.py
 ```
 
-### Google credentials
+### Google OAuth
 
-See **`CREDENTIALS.md`**. Short version:
+1. Create a **Desktop** OAuth client in Google Cloud (Calendar, Docs, Gmail readonly APIs enabled).
+2. Save JSON as **`core/credentials.json`** (see `CREDENTIALS.md` / `core/credentials.example.json` if present).
+3. First run opens a browser once; **`core/token.json`** is created.
 
-1. Create a **Desktop** OAuth client in Google Cloud and download the JSON.
-2. Save it as **`core/credentials.json`** (use `core/credentials.example.json` as a template).
-3. First run: browser opens once; **`core/token.json`** is created after you sign in.
-
-Porcupine and other keys go in **`.env`** (copy from `.env.example`).
-
-First run with Google: a browser may open for OAuth; **`core/token.json`** is saved after you sign in.
-
-## Google (see `addon.md`)
-
-- **Calendar:** e.g. “What’s due this week?”, “Add math homework due Friday at 3 PM.”
-- **Docs:** e.g. “Write me an essay about WW2”, “Update my essay intro” (uses most recent doc).
-- **Gmail:** e.g. “Anything important in my Gmail?” — summarizes unread (not full bodies).
-
-If Google APIs fail, Zap says a short error and still answers other questions.
-
-## Warning SFX
-
-Add **`assets/warning.mp3`** for alerts when something is due within an hour (calendar + planner). If the file is missing, Zap still announces by voice.
-
-## Env flags
+### Env highlights
 
 | Variable | Meaning |
 |----------|---------|
-| `USE_STREAMING_TTS` | Stream Ollama + chunked Piper playback (default true) |
-| `GOOGLE_PREWARM` | Warm Google clients on startup |
-| `WARNING_DAEMON_ENABLED` | Background due-soon checks every 5 minutes |
+| `USE_STREAMING_TTS` | Stream Ollama phrases + pipeline TTS (default: true) |
+| `SILENCE_END_MS` | Silence duration to stop recording (default: 300) |
+| `GOOGLE_PREWARM` | Background calendar cache + Gmail prefetch |
+| `WARNING_DAEMON_ENABLED` | Due-soon checks every 5 minutes |
+| `USE_FASTER_WHISPER` | Faster Whisper for STT |
+| `PLAYBACK_METHOD` | `subprocess` (aplay/ffplay) or `pyaudio` |
 
-## Speed
+If Google APIs fail, Zap says *"I'm having trouble connecting to Google right now"* and continues with local Q&A and planner.
 
-- `USE_FASTER_WHISPER=true`, `PLAYBACK_METHOD=subprocess`, `OLLAMA_NUM_PREDICT=80`
+## Docs
+
+- **`addon.md`** — product spec for the performance/UX overhaul.
+- **`ADDON_IMPLEMENTATION.md`** — what was implemented and which files changed.

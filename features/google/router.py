@@ -1,30 +1,46 @@
 """
 Route voice text to Google Calendar, Docs, Gmail. Returns voice string or None.
+Heavy API calls run in a thread pool so the mic pipeline stays responsive.
 """
+from __future__ import annotations
+
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import requests
 
 from core import config
+from core import console_ui
 from features.google import auth, calendar, docs, gmail
 
 logger = logging.getLogger(__name__)
 
+_POOL = ThreadPoolExecutor(max_workers=6, thread_name_prefix="zap_google")
+
 GMAIL_PATTERNS = re.compile(
-    r"\b(gmail|email|emails|inbox|teacher\s+emailed|check\s+my\s+mail|anything\s+important)\b",
+    r"\b(gmail|email|emails|inbox|anything\s+important\s+in\s+my\s+email|"
+    r"did\s+my\s+teacher\s+email|check\s+my\s+emails?|teacher\s+emailed)\b",
     re.I,
 )
 DOCS_WRITE_PATTERNS = re.compile(
-    r"\b(write\s+me\s+an?\s+|create\s+(notes|a\s+document|a\s+report)|essay\s+about|report\s+on|document\s+about)\b",
+    r"\b(write\s+me\s+an?\s+|create\s+(notes|a\s+document|a\s+report)|"
+    r"essay\s+about|report\s+on|document\s+about|make\s+a\s+report)\b",
     re.I,
 )
-DOCS_EDIT_PATTERNS = re.compile(r"\b(update|edit|change)\s+(my\s+)?(essay|document|intro|paper)\b", re.I)
+DOCS_EDIT_PATTERNS = re.compile(
+    r"\b(update|edit|change)\s+(my\s+)?(essay|document|intro|paper|doc)\b",
+    re.I,
+)
 CAL_PATTERNS = re.compile(
     r"\b(calendar|what'?s\s+due|due\s+this\s+week|due\s+friday|add\s+.*\s+due|schedule)\b",
     re.I,
 )
+
+
+def _bg(fn, *args, **kwargs):
+    return _POOL.submit(lambda: fn(*args, **kwargs)).result(timeout=120)
 
 
 def _ollama(system: str, user: str) -> str:
@@ -33,7 +49,7 @@ def _ollama(system: str, user: str) -> str:
         "model": config.OLLAMA_MODEL,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "stream": False,
-        "options": {"num_predict": getattr(config, "OLLAMA_NUM_PREDICT", 256)},
+        "options": {"num_predict": getattr(config, "OLLAMA_NUM_PREDICT", 512)},
     }
     try:
         r = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT)
@@ -51,13 +67,15 @@ def try_google(user_text: str) -> str | None:
 
     try:
         if GMAIL_PATTERNS.search(t):
-            return _handle_gmail()
+            return _bg(_handle_gmail)
         if DOCS_EDIT_PATTERNS.search(t):
-            return _handle_docs_edit(t)
-        if DOCS_WRITE_PATTERNS.search(t) or re.search(r"\b(write|create)\b.*\b(about|on)\b", t, re.I):
-            return _handle_docs_write(t)
+            return _bg(_handle_docs_edit, t)
+        if DOCS_WRITE_PATTERNS.search(t) or re.search(
+            r"\b(write|create|make)\b.*\b(about|on)\b", t, re.I
+        ):
+            return _bg(_handle_docs_write, t)
         if CAL_PATTERNS.search(t) or re.search(r"\bdue\s+", t, re.I):
-            return _handle_calendar(t)
+            return _bg(_handle_calendar, t)
     except Exception as e:
         logger.exception("Google router: %s", e)
         return auth.google_error_message()
@@ -65,6 +83,7 @@ def try_google(user_text: str) -> str | None:
 
 
 def _handle_gmail() -> str:
+    console_ui.intent_line("Google Gmail → fetch unread + smart summary (LLM)")
     items = gmail.list_unread(10)
     if not items:
         return "You have no unread emails in your inbox."
@@ -72,42 +91,56 @@ def _handle_gmail() -> str:
     for m in items:
         lines.append(f"From: {m['from']}\nSubject: {m['subject']}\nSnippet: {m['snippet']}")
     blob = "\n---\n".join(lines)
-    sys = """You summarize email for voice. Reply in 2-4 short sentences only.
-Mention only important school-related or personal emails; ignore obvious spam and promotions.
-Never quote full bodies. Sound natural."""
-    out = _ollama(sys, f"Summarize these for the student:\n{blob}")
+    sys = """You summarize email for voice only. Reply in 2-4 short sentences.
+Count important school-related emails; ignore spam and promotions.
+Never quote full bodies. Example: You have 2 important emails — one from Mrs. Johnson about your project due Monday, and one from the school about picture day."""
+    out = _ollama(sys, f"Summarize for the student:\n{blob}")
     if not out:
         return auth.google_error_message()
     return out
 
 
 def _handle_docs_write(user_text: str) -> str:
-    sys = """You write complete school essays, notes, or reports. Output only the document body.
-Use clear paragraphs. No meta-commentary."""
+    console_ui.intent_line("Google Docs → create full document (Markdown → rich formatting + API)")
+    sys = """You write complete school documents. Output ONLY the document body in Markdown:
+- ## for main section titles
+- ### for subsection titles
+- **term** for bold important terms
+- Normal paragraphs between sections
+No meta-commentary, no outline-only content. Full essay or notes."""
     body = _ollama(sys, user_text)
     if not body:
         return auth.google_error_message()
     title = _ollama(
-        "Reply with a 5-word or fewer title only, no quotes.",
-        f"Title for: {user_text[:200]}",
-    )[:80] or "Zap Document"
-    doc_id, link = docs.create_document(title.strip(), body)
+        "Reply with a short document title only (max 8 words), no quotes. "
+        "Example: World War II: A Global Conflict",
+        user_text[:500],
+    )
+    title = (title or "Zap Document").strip()[:120]
+    doc_id, link = docs.create_document_rich(title, body)
+    console_ui.doc_created(title[:80])
     docs.open_in_browser(link)
-    return f"I created a Google Doc titled {title.strip()}. Opening it in your browser."
+    console_ui.doc_opened()
+    short = title[:60]
+    return (
+        f"I've created your document in Google Docs titled {short} and opened it for you."
+    )
 
 
 def _handle_docs_edit(user_text: str) -> str:
+    console_ui.intent_line("Google Docs → edit most recent document (append + API)")
     doc_id = docs.get_recent_doc_id()
     if not doc_id:
         return "I don't have a recent document to edit. Ask me to write something first."
-    sys = """You revise or add to a student document. Output only the new or replacement text."""
+    sys = """Output only the new or replacement text to insert. Plain text or short Markdown."""
     new_part = _ollama(sys, user_text)
     if not new_part:
         return auth.google_error_message()
     docs.update_document_body(doc_id, "\n\n" + new_part, replace_all=False)
     link = f"https://docs.google.com/document/d/{doc_id}/edit"
     docs.open_in_browser(link)
-    return "I updated your document. Opening it now."
+    console_ui.doc_opened()
+    return "I've updated your document in Google Docs and opened it for you."
 
 
 def _handle_calendar(user_text: str) -> str:
@@ -117,23 +150,60 @@ def _handle_calendar(user_text: str) -> str:
         dateparser = None
 
     low = user_text.lower()
+
+    if "tomorrow" in low or "anything tomorrow" in low:
+        console_ui.intent_line("Google Calendar → list events for tomorrow")
+        evs = calendar.list_tomorrow_events()
+        return calendar.format_events_conversational(
+            evs,
+            "Here's what you have tomorrow.",
+        )
+
+    if re.search(r"\b(move|reschedule|shift)\b", low):
+        console_ui.intent_line("Google Calendar → move / reschedule event (match + update)")
+        hint = _ollama(
+            "Reply with 4-8 words: the event title or subject to find (homework name). No quotes.",
+            user_text,
+        )
+        evs = calendar.find_upcoming_events_matching(hint)
+        if not evs:
+            return "I couldn't find that on your calendar. Try being more specific."
+        ev = evs[0]
+        new_start = None
+        if dateparser:
+            new_start = dateparser.parse(user_text, settings={"RETURN_AS_TIMEZONE_AWARE": True})
+        if new_start is None:
+            return "Say when to move it to, like Saturday at 3 PM."
+        if new_start.tzinfo is None:
+            new_start = new_start.replace(tzinfo=timezone.utc)
+        eid = ev.get("id")
+        if not eid:
+            return auth.google_error_message()
+        calendar.update_event(str(eid), start=new_start)
+        summ = ev.get("summary", "Event")
+        return f"Done, I've moved {summ} to when you asked."
+
     if "what" in low or "due this week" in low or "this week" in low:
+        console_ui.intent_line("Google Calendar → list / summarize this week")
         now = datetime.now(timezone.utc)
         end = now + timedelta(days=7)
         evs = calendar.list_events(now, end)
-        return calendar.format_events_for_voice(evs)
+        return calendar.format_events_conversational(
+            evs,
+            "This week you have:",
+        )
 
     if "add" in low or "create" in low or "schedule" in low:
+        console_ui.intent_line("Google Calendar → create event (natural language → API)")
         extract = _ollama(
             """Extract calendar event. Reply EXACTLY in two lines:
 Line1: short title (max 60 chars)
-Line2: ISO 8601 datetime in UTC for START (e.g. 2026-03-20T15:00:00+00:00)
-If you cannot parse a time, use tomorrow 3pm UTC.""",
+Line2: ISO 8601 datetime in UTC for START (e.g. 2026-03-20T17:00:00+00:00)""",
             user_text,
         )
         lines = [ln.strip() for ln in extract.split("\n") if ln.strip()]
         if len(lines) < 2:
-            return "I couldn't figure out when that event should be. Try saying the day and time clearly."
+            return "I couldn't figure out when that event should be. Try again with day and time."
         title = lines[0]
         start = None
         try:
@@ -143,19 +213,19 @@ If you cannot parse a time, use tomorrow 3pm UTC.""",
         if start is None and dateparser:
             start = dateparser.parse(user_text, settings={"RETURN_AS_TIMEZONE_AWARE": True})
         if start is None:
-            return "I couldn't parse the date. Try again with a clear day and time."
+            return "I couldn't parse the date. Try something like Friday at 5 PM."
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
         calendar.create_event(title, start)
-        return f"Added to your calendar: {title}."
+        return f"Done, I've added {title} to your calendar."
 
-    return calendar.format_events_for_voice(
-        calendar.list_events(datetime.now(timezone.utc), datetime.now(timezone.utc) + timedelta(days=7))
-    )
+    console_ui.intent_line("Google Calendar → list upcoming (next 7 days)")
+    now = datetime.now(timezone.utc)
+    evs = calendar.list_events(now, now + timedelta(days=7))
+    return calendar.format_events_conversational(evs, "Upcoming:")
 
 
 def refresh_cache() -> None:
-    """Preload counts for planning (optional)."""
     try:
         calendar.list_events(
             datetime.now(timezone.utc),
@@ -164,3 +234,13 @@ def refresh_cache() -> None:
         gmail.list_unread(1)
     except Exception:
         pass
+
+
+def prefetch_gmail_background() -> None:
+    def run():
+        try:
+            gmail.list_unread(10)
+        except Exception:
+            pass
+
+    _POOL.submit(run)

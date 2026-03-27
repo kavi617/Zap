@@ -99,3 +99,35 @@ def format_events_for_voice(items: List[dict], max_items: int = 5) -> str:
         s = start.get("dateTime") or start.get("date", "")
         parts.append(f"{t} at {s}")
     return ". ".join(parts)
+
+
+def format_events_conversational(items: List[dict], intro: str) -> str:
+    if not items:
+        return f"{intro} You have nothing scheduled."
+    bits = []
+    for it in items[:8]:
+        t = it.get("summary", "Event")
+        start = it.get("start", {})
+        s = start.get("dateTime") or start.get("date", "")
+        bits.append(f"{t} ({s})")
+    return f"{intro} " + "; ".join(bits) + "."
+
+
+def list_tomorrow_events() -> List[dict]:
+    now = datetime.now(timezone.utc)
+    tomorrow = (now + timedelta(days=1)).date()
+    day_start = datetime(
+        tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=timezone.utc
+    )
+    day_end = day_start + timedelta(days=1)
+    return list_events(day_start, day_end)
+
+
+def find_upcoming_events_matching(keyword: str, days: int = 14) -> List[dict]:
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(days=days)
+    items = list_events(now, end)
+    kw = (keyword or "").lower().strip()
+    if not kw:
+        return []
+    return [e for e in items if kw in (e.get("summary") or "").lower()]

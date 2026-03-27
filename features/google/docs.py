@@ -1,9 +1,10 @@
-"""Google Docs – create and update documents."""
+"""Google Docs – create and update documents with optional rich formatting."""
 import logging
 import webbrowser
 from typing import Optional
 
 from features.google import auth
+from features.google.docs_format import build_requests_from_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -15,21 +16,24 @@ def get_recent_doc_id() -> Optional[str]:
     return _last_doc_id
 
 
-def create_document(title: str, body_text: str) -> tuple[str, str]:
-    """Create a new Google Doc with plain text; return (doc_id, web_link)."""
+def create_document_rich(title: str, markdown_body: str) -> tuple[str, str]:
+    """
+    Create a new Google Doc with HEADING_1/HEADING_2 and bold from markdown_body.
+    Title is document title only (clean, no sentences).
+    """
     global _last_doc_id, _last_doc_title
     try:
         svc = auth.docs_service()
-        doc = {"title": title}
-        created = svc.documents().create(body=doc).execute()
+        created = svc.documents().create(body={"title": title.strip()}).execute()
         doc_id = created.get("documentId")
         if not doc_id:
             raise RuntimeError("No documentId from create")
-        requests = [{"insertText": {"location": {"index": 1}, "text": body_text}}]
-        svc.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+        reqs = build_requests_from_markdown(markdown_body)
+        if reqs:
+            svc.documents().batchUpdate(documentId=doc_id, body={"requests": reqs}).execute()
         link = f"https://docs.google.com/document/d/{doc_id}/edit"
         _last_doc_id = doc_id
-        _last_doc_title = title
+        _last_doc_title = title.strip()
         return doc_id, link
     except Exception as e:
         logger.exception("Docs create failed: %s", e)
