@@ -78,7 +78,6 @@ def wait_for_wake_word() -> bool:
         return True
     try:
         import pvporcupine
-        from pvrecorder import PvRecorder
     except ImportError as e:
         logger.warning("Wake word deps missing: %s. Say something to continue.", e)
         return True
@@ -102,20 +101,28 @@ def wait_for_wake_word() -> bool:
     except Exception as e:
         logger.warning("Porcupine init failed: %s", e)
         return True
-    recorder = PvRecorder(frame_length=porcupine.frame_length)
+    p = pyaudio.PyAudio()
+    stream = p.open(
+        rate=porcupine.sample_rate,
+        channels=1,
+        format=pyaudio.paInt16,
+        input=True,
+        input_device_index=2,
+        frames_per_buffer=porcupine.frame_length,
+    )
     try:
-        recorder.start()
         logger.info("Say Hey Zap (or wake word)...")
         while True:
-            frame = recorder.read()
-            pcm = frame.tolist() if hasattr(frame, "tolist") else list(frame)
-            if porcupine.process(pcm) >= 0:
+            chunk = stream.read(porcupine.frame_length, exception_on_overflow=False)
+            frame = struct.unpack_from("h" * porcupine.frame_length, chunk)
+            if porcupine.process(list(frame)) >= 0:
                 logger.info("Wake word detected.")
                 _play_wake_sfx()
                 return True
     except KeyboardInterrupt:
         return False
     finally:
-        recorder.stop()
-        recorder.delete()
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
         porcupine.delete()
