@@ -1,15 +1,28 @@
 """
 LLM with session history and planner command parsing.
 Returns reply text for TTS; executes ADD/LIST/DONE/REMOVE from response.
+Google Calendar/Docs/Gmail routed first when matched.
 """
 import logging
+import re
 import requests
 from typing import List, Tuple
 
 from core import config
 from features import planner
+from features.google import router as google_router
 
 logger = logging.getLogger(__name__)
+
+_PLANNER_HINT = re.compile(
+    r"\b(add|list|done|remove|homework|assignment|planner)\b",
+    re.I,
+)
+
+
+def planner_likely(user_text: str) -> bool:
+    """Sync path needed for ADD|LIST| planner lines."""
+    return bool(_PLANNER_HINT.search(user_text or ""))
 
 
 def _chat(messages: List[dict]) -> str:
@@ -75,9 +88,7 @@ def _execute_planner(cmd: str, args: list) -> str:
     return ""
 
 
-def respond(messages: List[dict], user_text: str) -> str:
-    if not (user_text or "").strip():
-        return ""
+def _planner_reply(messages: List[dict], user_text: str) -> str:
     full_messages = messages + [{"role": "user", "content": user_text.strip()}]
     raw = _chat(full_messages)
     if not raw:
@@ -102,3 +113,43 @@ def respond(messages: List[dict], user_text: str) -> str:
     if len(reply) > 300:
         reply = reply[:297] + "..."
     return reply
+
+
+def respond(messages: List[dict], user_text: str) -> str:
+    if not (user_text or "").strip():
+        return ""
+    try:
+        g = google_router.try_google(user_text.strip())
+        if g:
+            return g
+    except Exception as e:
+        logger.warning("Google router: %s", e)
+        from features.google import auth as gauth
+
+        return gauth.google_error_message()
+    return _planner_reply(messages, user_text)
+
+
+def voice_reply_chunks(messages: List[dict], user_text: str):
+    """Yield TTS chunks: Google one block; planner one block; else stream Ollama."""
+    if not (user_text or "").strip():
+        return
+    try:
+        g = google_router.try_google(user_text.strip())
+        if g:
+            yield g
+            return
+    except Exception as e:
+        logger.warning("Google router: %s", e)
+        from features.google import auth as gauth
+
+        yield gauth.google_error_message()
+        return
+    if planner_likely(user_text):
+        yield _planner_reply(messages, user_text)
+        return
+    from core.llm_stream import buffer_phrases, stream_ollama_deltas
+
+    for chunk in buffer_phrases(stream_ollama_deltas(messages, user_text)):
+        if chunk:
+            yield chunk

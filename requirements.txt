@@ -12,4 +12,10 @@ pvporcupine>=3.0.0
 pvrecorder>=1.2.0
 pygame>=2.5.0
 
-# Ollama: run `ollama pull qwen2:0.5b` (or set OLLAMA_MODEL in .env)
+# Google APIs (Calendar, Docs, Gmail)
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.2.0
+dateparser>=1.2.0
+
+# Ollama: run `ollama pull` for your model (see .env)

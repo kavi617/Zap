@@ -44,7 +44,7 @@ SYSTEM_PROMPT = _env(
     """You are a student voice assistant: tutor and homework planner. Be accurate and brief for voice (1-3 sentences when possible).
 Rules: Use simple language. Give clear final answers. For math, show key steps then answer.
 Homework commands (reply in one short sentence, then on a NEW LINE output exactly one of):
-- To add: ADD|subject|assignment name|due date and time|estimated time
+- To add: ADD|subject|assignment name|due date and time|estimated time 
 - To list: LIST
 - To mark done: DONE|assignment name or number
 - To remove: REMOVE|assignment name or number
@@ -105,6 +105,11 @@ def _resolve_wake_sfx() -> str:
     return ""
 
 WAKE_SFX_PATH = _resolve_wake_sfx()
+
+# Addon: Google, streaming TTS, warning daemon
+USE_STREAMING_TTS = _env_bool("USE_STREAMING_TTS", True)
+GOOGLE_PREWARM = _env_bool("GOOGLE_PREWARM", True)
+WARNING_DAEMON_ENABLED = _env_bool("WARNING_DAEMON_ENABLED", True)
 
 LOG_LEVEL = _env("LOG_LEVEL", "INFO")
 LOG_FORMAT = _env("LOG_FORMAT", "%(asctime)s [%(levelname)s] %(name)s: %(message)s")

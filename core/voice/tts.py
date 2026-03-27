@@ -43,6 +43,14 @@ def text_to_wav(text: str) -> str:
         raise
 
 
+def prewarm() -> None:
+    """Load Piper voice once at startup."""
+    try:
+        _load_voice()
+    except Exception as e:
+        logger.warning("Piper prewarm: %s", e)
+
+
 def speak(text: str) -> None:
     if not (text or "").strip():
         return

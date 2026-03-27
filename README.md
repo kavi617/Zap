@@ -1,49 +1,69 @@
 # Zap – Voice-Only Student Assistant
 
-**100% voice-operated.** No UI. Session memory for follow-up questions; planner fully voice-controlled.
+**100% voice-operated.** Planner, Google Calendar / Docs / Gmail (optional OAuth), streaming TTS, and a due-soon warning daemon.
 
 ## Folder structure
 
 ```
 Ai_voice_assistant/
-├── main.py              # Entry point
+├── main.py
 ├── requirements.txt
-├── .env                  # Optional: PORCUPINE_ACCESS_KEY, OLLAMA_MODEL, etc.
-├── assets/               # Put heyzap.mp3 here for wake word SFX
-├── data/                 # Runtime (planner.db)
-│
-├── core/                 # Model, voice engine, wake word, session, config
+├── .env
+├── core/
 │   ├── config.py
+│   ├── credentials.json   # OAuth client (not in git — copy yours)
+│   ├── token.json         # Created after first Google login
 │   ├── session.py
-│   └── voice/
-│       ├── input.py     # Wake word + recording
-│       ├── stt.py       # Whisper
-│       ├── llm.py       # Ollama
-│       ├── tts.py       # Piper
-│       └── output.py    # Playback + wake SFX
-│
-└── features/             # Planner and other feature modules
-    └── planner.py
+│   ├── tts_stream.py      # Chunked streaming playback
+│   ├── llm_stream.py      # Ollama streaming deltas
+│   ├── warning_daemon.py  # Checks every 5 min for due-within-1-hour
+│   └── voice/             # input, stt, llm, tts, output
+├── features/
+│   ├── planner.py
+│   └── google/            # auth, calendar, docs, gmail, router
+└── assets/                # heyzap.mp3, warning.mp3 (optional)
 ```
 
 ## Run
 
 ```bash
 pip install -r requirements.txt
-ollama pull qwen2:0.5b
+ollama pull qwen2:0.5b   # or your OLLAMA_MODEL
 python main.py
 ```
 
-Say **Hey Zap**, then ask questions or use planner commands. The wake word plays `assets/heyzap.mp3` (or `core/heyzap.mp3`) if present, then listens for your question.
+### Google credentials
 
-## Wake word SFX
+See **`CREDENTIALS.md`**. Short version:
 
-Place **heyzap.mp3** in `assets/` or `core/`. When the wake word is detected, it plays fully before Zap starts listening. Set `WAKE_SFX_PATH` in `.env` to override the path.
+1. Create a **Desktop** OAuth client in Google Cloud and download the JSON.
+2. Save it as **`core/credentials.json`** (use `core/credentials.example.json` as a template).
+3. First run: browser opens once; **`core/token.json`** is created after you sign in.
 
-## Speed (target 5–10s total)
+Porcupine and other keys go in **`.env`** (copy from `.env.example`).
 
-- **Whisper:** `USE_FASTER_WHISPER=true` uses faster-whisper (~2–4s vs 10s+)
-- **Playback:** `PLAYBACK_METHOD=subprocess` uses `aplay`/`paplay`/`ffplay` to avoid PyAudio/ALSA hangs
-- **LLM:** `OLLAMA_NUM_PREDICT=80` limits reply length
+First run with Google: a browser may open for OAuth; **`core/token.json`** is saved after you sign in.
 
-On Linux, install `alsa-utils` (aplay) or `ffmpeg` (ffplay) for reliable playback.
+## Google (see `addon.md`)
+
+- **Calendar:** e.g. “What’s due this week?”, “Add math homework due Friday at 3 PM.”
+- **Docs:** e.g. “Write me an essay about WW2”, “Update my essay intro” (uses most recent doc).
+- **Gmail:** e.g. “Anything important in my Gmail?” — summarizes unread (not full bodies).
+
+If Google APIs fail, Zap says a short error and still answers other questions.
+
+## Warning SFX
+
+Add **`assets/warning.mp3`** for alerts when something is due within an hour (calendar + planner). If the file is missing, Zap still announces by voice.
+
+## Env flags
+
+| Variable | Meaning |
+|----------|---------|
+| `USE_STREAMING_TTS` | Stream Ollama + chunked Piper playback (default true) |
+| `GOOGLE_PREWARM` | Warm Google clients on startup |
+| `WARNING_DAEMON_ENABLED` | Background due-soon checks every 5 minutes |
+
+## Speed
+
+- `USE_FASTER_WHISPER=true`, `PLAYBACK_METHOD=subprocess`, `OLLAMA_NUM_PREDICT=80`

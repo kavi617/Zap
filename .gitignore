@@ -1,6 +1,8 @@
 # Secrets
 .env
 *.ppn
+core/credentials.json
+core/token.json
 
 # Python
 __pycache__/
