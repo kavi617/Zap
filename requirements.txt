@@ -12,7 +12,7 @@ pvporcupine>=3.0.0
 pvrecorder>=1.2.0
 pygame>=2.5.0
 
-# Google APIs (Calendar, Docs, Gmail)
+# Google APIs (Calendar, Docs)
 google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
 google-auth-httplib2>=0.2.0

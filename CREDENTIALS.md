@@ -8,7 +8,6 @@ Zap reads **`core/credentials.json`** (OAuth **Desktop app** client). It is **no
 2. **APIs & Services → Library** — enable:
    - Google Calendar API  
    - Google Docs API  
-   - Gmail API  
 3. **APIs & Services → OAuth consent screen** — choose **External** (or Internal for Workspace), add your Google account as a **Test user** if the app is in Testing mode.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**  
    - Application type: **Desktop app**  
@@ -37,6 +36,8 @@ python main.py
 ```
 
 The first time a Google feature is used, a browser may open for you to sign in and approve scopes. After that, **`core/token.json`** is created so you usually stay signed in.
+
+If you change which APIs or scopes the app uses, **delete `core/token.json`** and run again so Google can issue a new token.
 
 ## 4. Other secrets (not Google)
 

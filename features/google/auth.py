@@ -17,7 +17,6 @@ TOKEN_PATH = ROOT / "core" / "token.json"
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/documents",
-    "https://www.googleapis.com/auth/gmail.readonly",
 ]
 
 _creds = None
@@ -86,24 +85,12 @@ def docs_service():
     return _services["docs"]
 
 
-def gmail_service():
-    if "gmail" not in _services:
-        from googleapiclient.discovery import build
-
-        def _build():
-            return build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
-
-        _services["gmail"] = _retry(_build)
-    return _services["gmail"]
-
-
 def prewarm() -> None:
     """Load token and build services once at startup."""
     try:
         get_credentials()
         calendar_service()
         docs_service()
-        gmail_service()
         logger.info("Google APIs prewarmed.")
     except Exception as e:
         logger.warning("Google prewarm skipped: %s", e)

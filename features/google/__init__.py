@@ -1,1 +1,1 @@
-# Google Calendar, Docs, Gmail integration
+# Google Calendar, Docs integration

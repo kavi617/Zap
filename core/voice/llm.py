@@ -1,7 +1,7 @@
 """
 LLM with session history and planner command parsing.
 Returns reply text for TTS; executes ADD/LIST/DONE/REMOVE from response.
-Google Calendar/Docs/Gmail routed first when matched.
+Google Calendar/Docs routed first when matched.
 """
 import logging
 import re

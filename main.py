@@ -38,7 +38,7 @@ def _prewarm_ollama() -> bool:
 
 
 def _prewarm_google_async() -> None:
-    """Gmail prefetch + calendar cache without blocking OAuth (auth prewarmed in main)."""
+    """Calendar cache without blocking OAuth (auth prewarmed in main)."""
 
     def run():
         try:
@@ -46,7 +46,6 @@ def _prewarm_google_async() -> None:
 
             if config.GOOGLE_PREWARM:
                 google_router.refresh_cache()
-                google_router.prefetch_gmail_background()
         except Exception:
             pass
 

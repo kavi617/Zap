@@ -36,14 +36,12 @@ def _env_bool(key: str, default: bool) -> bool:
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = _env("OLLAMA_MODEL", "qwen2:0.5b")
 OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 30)
-# Long Google Doc / Gmail summarization — allow enough time for local Ollama to finish
+# Long Google Doc generation — allow enough time for local Ollama to finish
 OLLAMA_TIMEOUT_GOOGLE = _env_int("OLLAMA_TIMEOUT_GOOGLE", 180)
 OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 56)
 # Full essay/report bodies need a high token cap (384 was cutting output mid‑paragraph)
 OLLAMA_NUM_PREDICT_GOOGLE = _env_int("OLLAMA_NUM_PREDICT_GOOGLE", 4096)
 OLLAMA_NUM_PREDICT_ROUTER = _env_int("OLLAMA_NUM_PREDICT_ROUTER", 128)
-OLLAMA_NUM_PREDICT_GMAIL = _env_int("OLLAMA_NUM_PREDICT_GMAIL", 96)
-GMAIL_UNREAD_MAX = _env_int("GMAIL_UNREAD_MAX", 6)
 VOICE_REPLY_MAX_CHARS = _env_int("VOICE_REPLY_MAX_CHARS", 220)
 def _resolve_local_timezone() -> str:
     """IANA name from LOCAL_TIMEZONE, else auto-detect from the OS (Calendar + dateparser)."""
