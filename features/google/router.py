@@ -246,6 +246,9 @@ def _parse_event_start_datetime(raw: str) -> datetime | None:
     slim = re.sub(r"\s+", " ", slim).strip()
     if slim and slim not in candidates:
         candidates.append(slim)
+    about_stripped = re.sub(r"(?i)\s+about\s+.+$", "", parse_text).strip()
+    if about_stripped and about_stripped not in candidates:
+        candidates.append(about_stripped)
 
     for c in candidates:
         try:
@@ -440,8 +443,13 @@ def _handle_calendar(user_text: str) -> str:
         if start is None:
             return "I couldn't understand the date and time. Try: tomorrow at 8 AM, or tomorrow at eight."
         start = _normalize_event_start(start)
-        calendar.create_event(title, start)
-        return f"Done, I've added {title} to your calendar."
+        try:
+            calendar.create_event(title, start)
+        except Exception as e:
+            logger.exception("Calendar create_event failed: %s", e)
+            return auth.google_error_message()
+        when = calendar.format_instant_for_voice(start)
+        return f"Done. I put {title} on your calendar for {when}."
 
     if re.search(r"\b(this\s+week|due\s+this\s+week)\b", low) and "tomorrow" not in low:
         console_ui.intent_line("Google Calendar → list / summarize this week")
