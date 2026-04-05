@@ -5,9 +5,9 @@ Offline-capable voice loop with **Whisper**, **Ollama**, **Piper** TTS, optional
 ## Features
 
 - **Wake word** + optional `assets/heyzap.mp3` (non-blocking — STT can start immediately).
-- **Fast VAD** — recording ends ~**300 ms** after silence (`SILENCE_END_MS` in `.env`).
+- **VAD** — recording ends after **~1 s** of silence by default (`SILENCE_END_MS`), up to **`RECORD_SECONDS`** max clip length — tune both if you pause mid‑sentence or need longer turns.
 - **Voice path** — one Ollama reply, then Piper speaks the full line (no streaming LLM/TTS). Tune `OLLAMA_MODEL`, `OLLAMA_NUM_PREDICT`, and `VOICE_REPLY_MAX_CHARS` for sub‑5s turns when using a small model and short speech.
-- **Google** (optional): calendar (natural language), rich **Docs** (headings + bold), **Gmail** summaries (no full bodies read aloud).
+- **Google** (optional): calendar (create events before listing “tomorrow”), rich **Docs**, **Gmail** brief summaries of what matters most.
 - **Warning daemon** — every 5 minutes, events due within 1 hour: optional `assets/warning.mp3` + voice; deduped in `data/warning_warned.json`.
 - **Competition-style terminal** — banner, colored status lines, stderr filter for ALSA/JACK noise (see `core/console_ui.py`).
 
@@ -59,11 +59,15 @@ python main.py
 
 | Variable | Meaning |
 |----------|---------|
-| `OLLAMA_NUM_PREDICT` | Max tokens for normal voice replies (default: 64) |
+| `OLLAMA_NUM_PREDICT` | Max tokens for normal voice replies (default: 56) |
+| `OLLAMA_NUM_PREDICT_GMAIL` | Max tokens for Gmail brief summary (default: 96) |
+| `GMAIL_UNREAD_MAX` | Unread messages to fetch for summary (default: 6) |
 | `OLLAMA_NUM_PREDICT_GOOGLE` | Max tokens for Google Docs create/edit LLM output (default: 4096) |
 | `OLLAMA_TIMEOUT_GOOGLE` | Seconds to wait for Gmail summary and long Doc generation (default: 180) |
+| `LOCAL_TIMEZONE` | Optional IANA zone (e.g. `Asia/Kolkata`) for calendar times; empty uses OS local |
 | `VOICE_REPLY_MAX_CHARS` | Cap on spoken reply length (default: 220) |
-| `SILENCE_END_MS` | Silence duration to stop recording (default: 300) |
+| `SILENCE_END_MS` | Silence after you stop talking before clip ends (default: 1000) |
+| `RECORD_SECONDS` | Max recording length cap (default: 30) |
 | `GOOGLE_PREWARM` | Background calendar cache + Gmail prefetch |
 | `WARNING_DAEMON_ENABLED` | Due-soon checks every 5 minutes |
 | `USE_FASTER_WHISPER` | Faster Whisper for STT |

@@ -38,11 +38,15 @@ OLLAMA_MODEL = _env("OLLAMA_MODEL", "qwen2:0.5b")
 OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 8)
 # Long Google Doc / Gmail summarization — allow enough time for local Ollama to finish
 OLLAMA_TIMEOUT_GOOGLE = _env_int("OLLAMA_TIMEOUT_GOOGLE", 180)
-OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 64)
+OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 56)
 # Full essay/report bodies need a high token cap (384 was cutting output mid‑paragraph)
 OLLAMA_NUM_PREDICT_GOOGLE = _env_int("OLLAMA_NUM_PREDICT_GOOGLE", 4096)
-OLLAMA_NUM_PREDICT_ROUTER = _env_int("OLLAMA_NUM_PREDICT_ROUTER", 160)
+OLLAMA_NUM_PREDICT_ROUTER = _env_int("OLLAMA_NUM_PREDICT_ROUTER", 128)
+OLLAMA_NUM_PREDICT_GMAIL = _env_int("OLLAMA_NUM_PREDICT_GMAIL", 96)
+GMAIL_UNREAD_MAX = _env_int("GMAIL_UNREAD_MAX", 6)
 VOICE_REPLY_MAX_CHARS = _env_int("VOICE_REPLY_MAX_CHARS", 220)
+# Optional IANA zone, e.g. America/New_York or Asia/Kolkata — helps "tomorrow 8am". Empty = OS local time.
+LOCAL_TIMEZONE = _env("LOCAL_TIMEZONE", "")
 
 # Tutor + planner — one or two short sentences, plain words, voice-first
 SYSTEM_PROMPT = _env(
@@ -61,11 +65,11 @@ Otherwise just answer the question in plain speech. No ADD/LIST/DONE/REMOVE line
 SAMPLE_RATE = _env_int("SAMPLE_RATE", 16000)
 CHANNELS = _env_int("CHANNELS", 1)
 CHUNK_SIZE = _env_int("CHUNK_SIZE", 1024)
-RECORD_SECONDS = _env_int("RECORD_SECONDS", 15)
-SILENCE_THRESHOLD = _env_float("SILENCE_THRESHOLD", 0.01)
-MIN_SPEECH_LENGTH = _env_float("MIN_SPEECH_LENGTH", 0.2)
-# End speech ~300ms after silence (energy VAD)
-SILENCE_END_MS = _env_int("SILENCE_END_MS", 300)
+RECORD_SECONDS = _env_int("RECORD_SECONDS", 30)
+SILENCE_THRESHOLD = _env_float("SILENCE_THRESHOLD", 0.008)
+MIN_SPEECH_LENGTH = _env_float("MIN_SPEECH_LENGTH", 0.15)
+# Pause this long after you stop talking before we end the clip (higher = more time to think)
+SILENCE_END_MS = _env_int("SILENCE_END_MS", 1000)
 
 # Whisper – use tiny + faster-whisper for ~2–4s (vs 10s+ with stock)
 USE_FASTER_WHISPER = _env_bool("USE_FASTER_WHISPER", True)

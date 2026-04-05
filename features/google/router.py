@@ -37,6 +37,43 @@ CAL_PATTERNS = re.compile(
     r"\b(calendar|what'?s\s+due|due\s+this\s+week|due\s+friday|add\s+.*\s+due|schedule)\b",
     re.I,
 )
+# Create before list — matches "create a calendar…", "add … due tomorrow…", "schedule …"
+_CAL_CREATE_VERB = re.compile(
+    r"\b(add|create|scheduled?|schedule|book|set\s+up|remind\s+me|put)\b",
+    re.I,
+)
+
+
+def _wants_calendar_create(low: str) -> bool:
+    """True when user intends to add an event (must run before 'tomorrow' list)."""
+    if _CAL_CREATE_VERB.search(low):
+        return True
+    if re.search(r"\b(make|new)\s+(an?\s+)?(event|reminder|appointment)\b", low):
+        return True
+    return False
+
+
+def _normalize_event_start(start: datetime) -> datetime:
+    """Interpret naive times and convert to UTC for Google Calendar."""
+    if start.tzinfo is not None:
+        return start.astimezone(timezone.utc)
+    tzname = getattr(config, "LOCAL_TIMEZONE", "").strip()
+    if tzname:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return start.replace(tzinfo=ZoneInfo(tzname)).astimezone(timezone.utc)
+        except Exception as e:
+            logger.warning("LOCAL_TIMEZONE %s: %s", tzname, e)
+    try:
+        from datetime import datetime as _dt
+
+        local = _dt.now().astimezone().tzinfo
+        if local is not None:
+            return start.replace(tzinfo=local).astimezone(timezone.utc)
+    except Exception:
+        pass
+    return start.replace(tzinfo=timezone.utc)
 
 
 def _bg(fn, *args, **kwargs):
@@ -86,17 +123,22 @@ def try_google(user_text: str) -> str | None:
     if not (user_text or "").strip():
         return None
     t = user_text.strip()
+    low = t.lower()
+    cal_hit = bool(CAL_PATTERNS.search(t) or re.search(r"\bdue\s+", t, re.I))
 
     try:
         if GMAIL_PATTERNS.search(t):
             return _bg(_handle_gmail)
         if DOCS_EDIT_PATTERNS.search(t):
             return _bg(_handle_docs_edit, t)
+        # Calendar create/list before Docs — "create a calendar on …" must not match write … on …
+        if cal_hit and _wants_calendar_create(low):
+            return _bg(_handle_calendar, t)
         if DOCS_WRITE_PATTERNS.search(t) or re.search(
             r"\b(write|create|make)\b.*\b(about|on)\b", t, re.I
         ):
             return _bg(_handle_docs_write, t)
-        if CAL_PATTERNS.search(t) or re.search(r"\bdue\s+", t, re.I):
+        if cal_hit:
             return _bg(_handle_calendar, t)
     except Exception as e:
         logger.exception("Google router: %s", e)
@@ -105,18 +147,25 @@ def try_google(user_text: str) -> str | None:
 
 
 def _handle_gmail() -> str:
-    console_ui.intent_line("Google Gmail → fetch unread + smart summary (LLM)")
-    items = gmail.list_unread(10)
+    console_ui.intent_line("Google Gmail → fetch unread + brief summary (LLM)")
+    n = min(8, max(3, int(config.GMAIL_UNREAD_MAX)))
+    items = gmail.list_unread(n)
     if not items:
         return "You have no unread emails in your inbox."
     lines = []
     for m in items:
         lines.append(f"From: {m['from']}\nSubject: {m['subject']}\nSnippet: {m['snippet']}")
     blob = "\n---\n".join(lines)
-    sys = """You summarize email for voice only. Reply in 2-4 short sentences.
-Count important school-related emails; ignore spam and promotions.
-Never quote full bodies. Example: You have 2 important emails — one from Mrs. Johnson about your project due Monday, and one from the school about picture day."""
-    out = _ollama(sys, f"Summarize for the student:\n{blob}", extended_timeout=True)
+    sys = """Reply in at most 2 short sentences for text-to-speech only.
+Cover only what matters most for a student: deadlines, teachers, school, grades. Ignore ads, shopping, and newsletters.
+Do not list every subject line; merge into one quick overview."""
+    max_tok = getattr(config, "OLLAMA_NUM_PREDICT_GMAIL", 96)
+    out = _ollama(
+        sys,
+        f"Unread mail:\n{blob}",
+        extended_timeout=True,
+        max_tokens=max_tok,
+    )
     if not out:
         return auth.google_error_message()
     return out
@@ -174,31 +223,27 @@ def _handle_calendar(user_text: str) -> str:
 
     low = user_text.lower()
 
-    if "tomorrow" in low or "anything tomorrow" in low:
-        console_ui.intent_line("Google Calendar → list events for tomorrow")
-        evs = calendar.list_tomorrow_events()
-        return calendar.format_events_conversational(
-            evs,
-            "Here's what you have tomorrow.",
-        )
-
     if re.search(r"\b(move|reschedule|shift)\b", low):
         console_ui.intent_line("Google Calendar → move / reschedule event (match + update)")
         hint = _ollama(
             "Reply with 4-8 words: the event title or subject to find (homework name). No quotes.",
             user_text,
+            max_tokens=64,
         )
         evs = calendar.find_upcoming_events_matching(hint)
         if not evs:
             return "I couldn't find that on your calendar. Try being more specific."
         ev = evs[0]
         new_start = None
+        dp_settings: dict = {"RETURN_AS_TIMEZONE_AWARE": True, "PREFER_DATES_FROM": "future"}
+        tz = getattr(config, "LOCAL_TIMEZONE", "").strip()
+        if tz:
+            dp_settings["TIMEZONE"] = tz
         if dateparser:
-            new_start = dateparser.parse(user_text, settings={"RETURN_AS_TIMEZONE_AWARE": True})
+            new_start = dateparser.parse(user_text, settings=dp_settings)
         if new_start is None:
             return "Say when to move it to, like Saturday at 3 PM."
-        if new_start.tzinfo is None:
-            new_start = new_start.replace(tzinfo=timezone.utc)
+        new_start = _normalize_event_start(new_start)
         eid = ev.get("id")
         if not eid:
             return auth.google_error_message()
@@ -206,7 +251,37 @@ def _handle_calendar(user_text: str) -> str:
         summ = ev.get("summary", "Event")
         return f"Done, I've moved {summ} to when you asked."
 
-    if "what" in low or "due this week" in low or "this week" in low:
+    if _wants_calendar_create(low):
+        console_ui.intent_line("Google Calendar → create event (natural language → API)")
+        extract = _ollama(
+            """Extract one calendar event from the user's words. Reply EXACTLY two lines:
+Line1: short title (max 60 chars), e.g. Math assignment due
+Line2: start time as ISO 8601 with timezone if possible, else date and time they said
+If they say tomorrow at 8 AM, use that date and time.""",
+            user_text,
+            max_tokens=128,
+        )
+        lines = [ln.strip() for ln in extract.split("\n") if ln.strip()]
+        title = lines[0] if lines else "Reminder"
+        start = None
+        if len(lines) >= 2:
+            try:
+                start = datetime.fromisoformat(lines[1].replace("Z", "+00:00"))
+            except Exception:
+                pass
+        dp_settings = {"RETURN_AS_TIMEZONE_AWARE": True, "PREFER_DATES_FROM": "future"}
+        tz = getattr(config, "LOCAL_TIMEZONE", "").strip()
+        if tz:
+            dp_settings["TIMEZONE"] = tz
+        if start is None and dateparser:
+            start = dateparser.parse(user_text, settings=dp_settings)
+        if start is None:
+            return "I couldn't parse the date and time. Try something like tomorrow at eight AM."
+        start = _normalize_event_start(start)
+        calendar.create_event(title.strip() or "Reminder", start)
+        return f"Done, I've added {title.strip() or 'that'} to your calendar."
+
+    if re.search(r"\b(this\s+week|due\s+this\s+week)\b", low) and "tomorrow" not in low:
         console_ui.intent_line("Google Calendar → list / summarize this week")
         now = datetime.now(timezone.utc)
         end = now + timedelta(days=7)
@@ -216,31 +291,13 @@ def _handle_calendar(user_text: str) -> str:
             "This week you have:",
         )
 
-    if "add" in low or "create" in low or "schedule" in low:
-        console_ui.intent_line("Google Calendar → create event (natural language → API)")
-        extract = _ollama(
-            """Extract calendar event. Reply EXACTLY in two lines:
-Line1: short title (max 60 chars)
-Line2: ISO 8601 datetime in UTC for START (e.g. 2026-03-20T17:00:00+00:00)""",
-            user_text,
+    if "tomorrow" in low:
+        console_ui.intent_line("Google Calendar → list events for tomorrow")
+        evs = calendar.list_tomorrow_events()
+        return calendar.format_events_conversational(
+            evs,
+            "Here's what you have tomorrow.",
         )
-        lines = [ln.strip() for ln in extract.split("\n") if ln.strip()]
-        if len(lines) < 2:
-            return "I couldn't figure out when that event should be. Try again with day and time."
-        title = lines[0]
-        start = None
-        try:
-            start = datetime.fromisoformat(lines[1].replace("Z", "+00:00"))
-        except Exception:
-            pass
-        if start is None and dateparser:
-            start = dateparser.parse(user_text, settings={"RETURN_AS_TIMEZONE_AWARE": True})
-        if start is None:
-            return "I couldn't parse the date. Try something like Friday at 5 PM."
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        calendar.create_event(title, start)
-        return f"Done, I've added {title} to your calendar."
 
     console_ui.intent_line("Google Calendar → list upcoming (next 7 days)")
     now = datetime.now(timezone.utc)
@@ -262,7 +319,7 @@ def refresh_cache() -> None:
 def prefetch_gmail_background() -> None:
     def run():
         try:
-            gmail.list_unread(10)
+            gmail.list_unread(min(8, max(3, int(getattr(config, "GMAIL_UNREAD_MAX", 6)))))
         except Exception:
             pass
 
