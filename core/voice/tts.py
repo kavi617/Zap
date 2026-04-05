@@ -1,6 +1,7 @@
 """Text-to-speech via Piper."""
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,22 @@ from core import config
 
 logger = logging.getLogger(__name__)
 _voice = None
+
+
+def sanitize_for_speech(text: str) -> str:
+    """Strip markdown and symbols so Piper reads natural sentences, not stars or hashes."""
+    if not (text or "").strip():
+        return ""
+    s = text.strip()
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"(?<!\*)\*(?!\s)([^*]+?)(?<!\s)\*(?!\*)", r"\1", s)
+    s = re.sub(r"__([^_]+?)__", r"\1", s)
+    s = re.sub(r"`+", "", s)
+    s = re.sub(r"^#+\s*", "", s, flags=re.MULTILINE)
+    s = re.sub(r"\*+", "", s)
+    s = re.sub(r"[_#|]+", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
 
 
 def _load_voice():
@@ -54,7 +71,10 @@ def prewarm() -> None:
 def speak(text: str) -> None:
     if not (text or "").strip():
         return
-    path = text_to_wav(text)
+    clean = sanitize_for_speech(text)
+    if not clean:
+        return
+    path = text_to_wav(clean)
     if path:
         try:
             from core.voice import output

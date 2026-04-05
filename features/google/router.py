@@ -30,7 +30,12 @@ DOCS_EDIT_PATTERNS = re.compile(
 )
 CAL_PATTERNS = re.compile(
     r"\b(calendar|google\s+calendar|cal\s+event|what'?s\s+due|due\s+this\s+week|due\s+friday|"
-    r"add\s+.*\s+due|schedule)\b",
+    r"add\s+.*\s+due|schedule|remind\s+me(\s+to)?|book)\b",
+    re.I,
+)
+# Natural scheduling without saying "calendar" — e.g. "schedule my homework tomorrow at eight"
+_SCHEDULE_HOMEWORK = re.compile(
+    r"\b(schedule|book|remind\s+me\s+to)\s+(my\s+)?(homework|assignment|class|exam|test|study|project|paper|quiz)\b",
     re.I,
 )
 # Create before list — matches "create a calendar…", "add … due tomorrow…", "schedule …"
@@ -43,6 +48,8 @@ _CAL_CREATE_VERB = re.compile(
 def _wants_calendar_create(low: str) -> bool:
     """True when user intends to add an event (must run before 'tomorrow' list)."""
     if _CAL_CREATE_VERB.search(low):
+        return True
+    if _SCHEDULE_HOMEWORK.search(low):
         return True
     if re.search(r"\b(make|new)\s+(an?\s+)?(event|reminder|appointment)\b", low):
         return True
@@ -124,8 +131,20 @@ def _prepare_calendar_datetime_text(raw: str) -> str:
 
 
 def _extract_calendar_title(user_text: str) -> str:
-    """Pull title from '… about my math homework' or '… for math homework …'."""
+    """Pull title from natural phrases: schedule my …, about …, remind me to …"""
     t = user_text.strip()
+    m = re.search(
+        r"(?i)\b(?:schedule|book)\s+(?:my|the\s+)?(.+?)(?=\s+(?:tomorrow|today|at\s|@|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)",
+        t,
+    )
+    if m:
+        return m.group(1).strip()[:120]
+    m = re.search(
+        r"(?i)\bremind\s+me\s+to\s+(.+?)(?=\s+(?:tomorrow|today|at\s|@|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)",
+        t,
+    )
+    if m:
+        return m.group(1).strip()[:120]
     m = re.search(
         r"\babout\s+(.+?)(?:\s*[,.])?\s*$",
         t,
@@ -338,7 +357,11 @@ def try_google(user_text: str) -> str | None:
         return None
     t = user_text.strip()
     low = t.lower()
-    cal_hit = bool(CAL_PATTERNS.search(t) or re.search(r"\bdue\s+", t, re.I))
+    cal_hit = bool(
+        CAL_PATTERNS.search(t)
+        or re.search(r"\bdue\s+", t, re.I)
+        or _SCHEDULE_HOMEWORK.search(t)
+    )
 
     try:
         if DOCS_EDIT_PATTERNS.search(t):
@@ -449,7 +472,7 @@ def _handle_calendar(user_text: str) -> str:
             logger.exception("Calendar create_event failed: %s", e)
             return auth.google_error_message()
         when = calendar.format_instant_for_voice(start)
-        return f"Done. I put {title} on your calendar for {when}."
+        return f"Got it. {title}, {when}."
 
     if re.search(r"\b(this\s+week|due\s+this\s+week)\b", low) and "tomorrow" not in low:
         console_ui.intent_line("Google Calendar → list / summarize this week")

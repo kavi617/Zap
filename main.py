@@ -80,6 +80,7 @@ def run_once() -> bool:
         if t3 - t2 >= 1.0:
             console_ui.system_processing(f"LLM ({t3 - t2:.1f}s)")
         if reply:
+            reply = tts.sanitize_for_speech(reply)
             console_ui.zap_reply_preview(reply)
             t4 = time.perf_counter()
             tts.speak(reply)

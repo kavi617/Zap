@@ -37,7 +37,8 @@ Ai_voice_assistant/
 │       ├── docs_format.py    # Markdown → Docs API requests
 │       └── router.py
 ├── assets/                   # heyzap.mp3, warning.mp3
-└── data/                     # planner.db, warning_warned.json
+├── data/                     # planner.db, warning_warned.json
+└── document/                 # index.html — full documentation (open in browser)
 ```
 
 ## Run
@@ -74,5 +75,6 @@ If Google APIs fail, Zap says *"I'm having trouble connecting to Google right no
 
 ## Docs
 
+- **`document/index.html`** — full documentation (GitHub link, architecture, setup, journey). Open in a browser.
 - **`addon.md`** — product spec for the performance/UX overhaul.
 - **`ADDON_IMPLEMENTATION.md`** — what was implemented and which files changed.

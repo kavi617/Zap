@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+   <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>AI School Helper — Raspberry Pi 5 Project</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+      <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet" />
+      <link rel="icon" href="favicon.ico" type="image/x-icon" />
+      <style>
+         :root {
+         --panel-bg: #2e2e2e;
+         --panel-text: #e0e0e0;
+         --window-bg: #f5f5f5;
+         --window-title-bg: #e4e4e4;
+         --window-title-text: #5e5e5e;
+         --window-border: #cdcdcd;
+         --highlight: #d63e52;
+         --highlight-hover: #b02a3a;
+         --terminal-bg: #1e1e1e;
+         --text-dark: #333;
+         --text-light: #666;
+         --card-bg: #ffffff;
+         }
+         * { box-sizing: border-box; user-select: none; outline: none; }
+         body {
+         margin: 0; padding: 0; overflow: hidden; font-family: 'Roboto', sans-serif;
+         background: url('background.png') center/cover no-repeat; height: 100vh;
+         color: var(--text-dark); transition: filter 0.3s;
+         }
+         #boot-screen {
+         position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999;
+         display: flex; flex-direction: column; align-items: center; justify-content: center;
+         transition: opacity 1s ease; font-family: 'Courier New', Courier, monospace;
+         }
+         .boot-logo-container { margin-bottom: 30px; animation: pulse 2s infinite; }
+         @keyframes pulse {
+         0% { transform: scale(1); opacity: 1; }
+         50% { transform: scale(1.05); opacity: 0.8; }
+         100% { transform: scale(1); opacity: 1; }
+         }
+         .boot-text { color: white; font-size: 24px; margin-bottom: 20px; font-weight: 700; letter-spacing: 1px; }
+         .console-log {
+         width: 600px; height: 200px; background: #111; border: 1px solid #333; padding: 10px; color: #0f0;
+         font-size: 14px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+         border-radius: 4px; box-shadow: 0 0 10px rgba(0, 255, 0, 0.1);
+         }
+         .log-line { margin: 2px 0; white-space: nowrap; }
+         #top-panel {
+         position: absolute; top: 0; left: 0; width: 100%; height: 36px; background: var(--panel-bg);
+         display: flex; align-items: center; justify-content: space-between; padding: 0 10px;
+         box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 2000; color: var(--panel-text); font-size: 14px;
+         }
+         .panel-left, .panel-right { display: flex; align-items: center; gap: 15px; }
+         .panel-btn {
+         cursor: pointer; padding: 6px 8px; border-radius: 4px; transition: background 0.2s;
+         display: flex; align-items: center; gap: 8px;
+         }
+         .panel-btn:hover { background: rgba(255,255,255,0.1); }
+         .panel-btn.active { background: rgba(255,255,255,0.2); box-shadow: inset 0 -2px 0 var(--highlight); }
+         .pi-menu-icon { color: var(--highlight); font-size: 18px; }
+         .clock { font-family: monospace; font-size: 15px; }
+         #desktop {
+         position: absolute; top: 36px; left: 0; width: 100%; height: calc(100% - 36px); padding: 20px;
+         }
+         .desktop-icon {
+         width: 80px; display: flex; flex-direction: column; align-items: center; gap: 5px; color: white;
+         text-shadow: 1px 1px 2px black; cursor: pointer; margin-bottom: 20px; padding: 10px; border-radius: 8px;
+         transition: background 0.2s;
+         }
+         .desktop-icon:hover { background: rgba(255,255,255,0.2); }
+         .desktop-icon i { font-size: 42px; color: #e0e0e0; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
+         .desktop-icon span { font-size: 13px; text-align: center; }
+         .window {
+         position: absolute; background: var(--window-bg); border: 1px solid var(--window-border);
+         box-shadow: 0 10px 30px rgba(0,0,0,0.4); border-radius: 8px 8px 4px 4px; display: flex; flex-direction: column;
+         overflow: hidden; min-width: 300px; min-height: 200px; opacity: 0; transform: scale(0.95);
+         transition: opacity 0.2s, transform 0.2s; pointer-events: none;
+         }
+         .window.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+         .window.maximized {
+         top: 36px !important; left: 0 !important; width: 100% !important; height: calc(100% - 36px) !important;
+         border-radius: 0; transform: none !important;
+         }
+         .title-bar {
+         height: 32px; background: var(--window-title-bg); border-bottom: 1px solid #ccc;
+         display: flex; align-items: center; justify-content: space-between; padding: 0 10px;
+         color: var(--window-title-text); font-size: 13px; font-weight: 500; cursor: default; user-select: none;
+         }
+         .win-controls { display: flex; gap: 8px; }
+         .win-btn {
+         width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+         border-radius: 3px; cursor: pointer; font-size: 10px; color: #666; transition: background 0.2s;
+         }
+         .win-btn:hover { background: #d0d0d0; }
+         .win-btn.close:hover { background: #e81123; color: white; }
+         .win-content { flex: 1; overflow: hidden; position: relative; background: white; display: flex; flex-direction: column; }
+         .browser-nav {
+         height: 40px; background: #f1f1f1; border-bottom: 1px solid #ddd;
+         display: flex; align-items: center; padding: 0 10px; gap: 10px;
+         }
+         .nav-btn { color: #5f6368; cursor: pointer; padding: 4px; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; }
+         .nav-btn:hover { background: #e0e0e0; }
+         .url-bar {
+         flex: 1; background: white; border: 1px solid #ddd; border-radius: 16px;
+         height: 28px; display: flex; align-items: center; padding: 0 12px; font-size: 13px; color: #202124;
+         }
+         .web-container { height: 100%; overflow-y: auto; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: relative;}
+         .web-header {
+         background: #fff; border-bottom: 1px solid #eee; padding: 10px 40px;
+         display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10;
+         }
+         .web-logo { font-weight: 700; font-size: 20px; color: var(--highlight); display: flex; align-items: center; gap: 8px; }
+         .web-nav { display: flex; flex-wrap: wrap; gap: 16px; }
+         .web-nav a {
+         text-decoration: none; color: #555; font-weight: 500; font-size: 14px; padding: 8px 0;
+         border-bottom: 2px solid transparent; cursor: pointer;
+         }
+         .web-nav a:hover, .web-nav a.active { color: var(--highlight); border-bottom-color: var(--highlight); }
+         .page-section { padding: 60px 40px; max-width: 900px; margin: 0 auto; display: none; animation: fadeIn 0.4s ease; }
+         .page-section.active { display: block; }
+         @keyframes fadeIn { from{opacity:0; transform: translateY(10px);} to{opacity:1; transform: translateY(0);} }
+         h1 { font-size: 32px; color: #222; margin-bottom: 16px; }
+         h2 { font-size: 24px; color: #333; margin-top: 40px; margin-bottom: 16px; border-bottom: 2px solid #f0f0f0; padding-bottom: 8px; }
+         p { line-height: 1.6; color: #555; font-size: 16px; }
+         .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-top: 30px; }
+         .feature-card { background: #f9f9f9; padding: 24px; border-radius: 12px; border: 1px solid #eee; text-align: center; }
+         .feature-icon { font-size: 32px; color: var(--highlight); margin-bottom: 16px; }
+         .team-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top: 30px; }
+         .team-member { display: flex; gap: 20px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #eee; }
+         .member-img { width: 80px; height: 80px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #aaa; flex-shrink: 0; }
+         .parts-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; border: 1px solid #eee; }
+         .parts-table th, .parts-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+         .parts-table th { background: #f5f5f5; font-weight: 600; color: #333; }
+         .parts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-top: 30px; }
+         .part-card {
+         background: #ffffff; border: 1px solid #eee; border-radius: 12px; overflow: hidden;
+         transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; display: flex; flex-direction: column;
+         }
+         .part-card:hover { transform: translateY(-8px); box-shadow: 0 15px 25px rgba(0,0,0,0.1); border-color: var(--highlight); }
+         .part-img-container {
+         height: 180px; background: #f9f9f9; display: flex; align-items: center; justify-content: center;
+         overflow: hidden; border-bottom: 1px solid #eee; padding: 15px;
+         }
+         .part-img-container img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.4s ease; }
+         .part-card:hover .part-img-container img { transform: scale(1.1); }
+         .part-info { padding: 20px; display: flex; flex-direction: column; flex: 1; }
+         .part-info h3 { margin: 0 0 10px 0; font-size: 18px; color: #333; }
+         .part-info p { font-size: 14px; color: #666; margin: 0 0 15px 0; flex: 1; line-height: 1.4; }
+         .part-qty {
+         display: inline-block; background: #eef; color: var(--highlight); padding: 5px 12px;
+         border-radius: 20px; font-size: 12px; font-weight: 700; align-self: flex-start;
+         }
+         .design-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }
+         .design-item {
+         background: #fff; height: 220px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+         position: relative; overflow: hidden; box-shadow: 0 4px 8px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s ease;
+         }
+         .design-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease; }
+         .design-item:hover { transform: translateY(-5px); box-shadow: 0 12px 20px rgba(0,0,0,0.15); }
+         .design-item:hover img { transform: scale(1.1); filter: brightness(0.6); }
+         .design-overlay {
+         position: absolute; bottom: -60px; left: 0; width: 100%; background: rgba(214, 62, 82, 0.9); color: white;
+         padding: 15px; text-align: center; font-weight: bold; transition: bottom 0.3s ease;
+         }
+         .design-item:hover .design-overlay { bottom: 0; }
+         .file-toolbar {
+         height: 35px; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; align-items: center; padding: 0 10px; gap: 15px;
+         }
+         .file-path { background: white; border: 1px solid #ccc; padding: 2px 8px; border-radius: 3px; font-size: 12px; flex: 1; }
+         .file-grid { padding: 10px; display: flex; flex-wrap: wrap; gap: 15px; align-content: flex-start; overflow-y: auto; height: 100%; }
+         .window-icon {
+         width: 80px; display: flex; flex-direction: column; align-items: center; gap: 5px; color: #333; cursor: pointer; padding: 5px; border-radius: 4px;
+         }
+         .window-icon:hover { background: #e3f2fd; border: 1px solid #bbdefb; }
+         .window-icon i { font-size: 32px; }
+         .window-icon span { font-size: 12px; text-align: center; word-break: break-all; }
+         #term-output {
+         flex: 1; padding: 10px; background: #1e1e1e; color: #eee; font-family: 'Consolas', 'Courier New', monospace; font-size: 14px; overflow-y: auto;
+         }
+         .term-line { margin-bottom: 2px; }
+         .term-input-line { display: flex; gap: 5px; color: #eee; }
+         .prompt { color: #87d441; font-weight: bold; }
+         #term-input { background: transparent; border: none; color: white; font-family: inherit; font-size: inherit; flex: 1; }
+         .matrix-mode { color: #0f0 !important; font-family: 'Courier New', Courier, monospace; text-shadow: 0 0 5px #0f0; }
+         .calc-body { display: flex; flex-direction: column; height: 100%; background: #f0f0f0; }
+         .calc-display {
+         background: #fff; text-align: right; padding: 15px; font-size: 24px; font-family: monospace; border: 1px solid #ccc; margin: 10px; border-radius: 4px; height: 60px;
+         }
+         .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 10px; flex: 1; }
+         .calc-btn {
+         background: #e0e0e0; border: 1px solid #ccc; border-radius: 4px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+         }
+         .calc-btn:hover { background: #d0d0d0; }
+         .calc-btn.op { background: #f5f5f5; color: var(--highlight); }
+         .calc-btn.eq { background: var(--highlight); color: white; border: none; }
+         .text-editor-toolbar { padding: 5px; background: #f0f0f0; border-bottom: 1px solid #ccc; display: flex; gap: 10px; }
+         .text-area-container { flex: 1; position: relative; }
+         #text-content { width: 100%; height: 100%; border: none; padding: 10px; font-family: monospace; font-size: 14px; resize: none; }
+         .thonny-toolbar { background: #f0f0f0; padding: 5px; border-bottom: 1px solid #ccc; display: flex; gap: 10px; }
+         .thonny-play { color: #2ecc71; cursor: pointer; }
+         .thonny-stop { color: #e74c3c; cursor: pointer; }
+         .thonny-layout { display: flex; flex-direction: column; height: 100%; }
+         #thonny-code { flex: 2; border: none; padding: 10px; font-family: 'Consolas', monospace; background: #fff; font-size: 14px; resize: none; border-bottom: 5px solid #eee; }
+         #thonny-shell { flex: 1; background: #fff; border-top: 1px solid #ccc; padding: 10px; font-family: 'Consolas', monospace; font-size: 13px; overflow-y: auto; }
+         .media-player-body {
+         display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; background: #222; color: white; gap: 20px;
+         }
+         .media-icon { font-size: 80px; color: var(--highlight); animation: spin 4s linear infinite; animation-play-state: paused; }
+         .media-controls { display: flex; gap: 20px; align-items: center; }
+         .media-btn {
+         width: 40px; height: 40px; border-radius: 50%; background: #444; border: none; color: white; cursor: pointer;
+         display: flex; align-items: center; justify-content: center; font-size: 16px;
+         }
+         .media-btn:hover { background: var(--highlight); }
+         .volume-slider { width: 100px; }
+         @keyframes spin { 100% { transform: rotate(360deg); } }
+         #start-menu {
+         position: absolute; top: 40px; left: 10px; width: 250px; background: #f0f0f0; border: 1px solid #aaa;
+         box-shadow: 4px 4px 10px rgba(0,0,0,0.2); display: none; z-index: 2100; padding: 2px;
+         }
+         .menu-item { padding: 8px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; color: #333; }
+         .menu-item:hover { background: var(--highlight); color: white; }
+         .menu-cat { font-weight: bold; padding: 8px 12px; border-bottom: 1px solid #ddd; background: #e0e0e0; }
+         canvas { background: #000; display: block; width: 100%; height: 100%; }
+      </style>
+   </head>
+   <body>
+      <div id="boot-screen">
+         <div class="boot-logo-container">
+            <i class="fab fa-raspberry-pi" style="font-size: 120px; color: #d63e52;"></i>
+         </div>
+         <div class="boot-text">Welcome to the Raspberry Pi Desktop</div>
+         <div class="console-log" id="boot-log"></div>
+      </div>
+      <div id="top-panel">
+         <div class="panel-left">
+            <div class="panel-btn" onclick="toggleMenu()" title="Start Menu"><i class="fab fa-raspberry-pi pi-menu-icon"></i></div>
+            <div class="panel-btn" onclick="openWindow('win-browser')" title="Web Browser"><i class="fas fa-globe"></i></div>
+            <div class="panel-btn" onclick="openWindow('win-files')" title="File Manager"><i class="fas fa-folder"></i></div>
+            <div class="panel-btn" onclick="openWindow('win-terminal')" title="Terminal"><i class="fas fa-terminal"></i></div>
+         </div>
+         <div class="panel-right">
+            <div class="panel-btn" onclick="playBluetoothSound()" title="Bluetooth"><i class="fab fa-bluetooth-b"></i></div>
+            <div class="panel-btn" id="btn-wifi" onclick="toggleWifi()" title="WiFi"><i class="fas fa-wifi"></i></div>
+            <div class="panel-btn" id="btn-vol" onclick="toggleVolume()" title="Volume"><i class="fas fa-volume-up"></i> <span id="vol-text">80%</span></div>
+            <div class="panel-btn clock" id="clock" onclick="checkEasterEggTime()">12:00</div>
+         </div>
+      </div>
+      <div id="start-menu">
+         <div class="menu-cat">Accessories</div>
+         <div class="menu-item" onclick="openWindow('win-calc'); toggleMenu()"><i class="fas fa-calculator"></i> Calculator</div>
+         <div class="menu-item" onclick="openWindow('win-text'); toggleMenu()"><i class="fas fa-edit"></i> Text Editor</div>
+         <div class="menu-item" onclick="openWindow('win-files'); toggleMenu()"><i class="fas fa-folder-open"></i> File Manager</div>
+         <div class="menu-cat">Internet</div>
+         <div class="menu-item" onclick="openWindow('win-browser'); toggleMenu()"><i class="fas fa-globe"></i> Chromium Web Browser</div>
+         <div class="menu-cat">Programming</div>
+         <div class="menu-item" onclick="openWindow('win-thonny'); toggleMenu()"><i class="fas fa-code"></i> Thonny Python IDE</div>
+         <div class="menu-item" onclick="openWindow('win-terminal'); toggleMenu()"><i class="fas fa-terminal"></i> Terminal</div>
+         <div class="menu-cat">Games</div>
+         <div class="menu-item" onclick="openWindow('win-snake'); toggleMenu()"><i class="fas fa-gamepad"></i> Snake</div>
+         <div class="menu-cat">System</div>
+         <div class="menu-item" onclick="location.reload()"><i class="fas fa-power-off"></i> Shutdown</div>
+      </div>
+      <div id="desktop">
+         <div class="desktop-icon" onclick="openWindow('win-browser')">
+            <i class="fas fa-file-code" style="color: #63b175;"></i>
+            <span>Project<br>Docs</span>
+         </div>
+         <div class="desktop-icon" onclick="openWindow('win-trash')"><i class="fas fa-trash-alt"></i><span>Trash</span></div>
+         <div class="desktop-icon" onclick="openWindow('win-media')">
+            <i class="fas fa-music" style="color: #3498db;"></i>
+            <span>music.mp3</span>
+         </div>
+      </div>
+      <div class="window" id="win-browser" style="top: 50px; left: 60px; width: 1000px; height: 650px;">
+         <div class="title-bar" id="win-browser-header">
+            <span>Project Documentation - Chromium</span>
+            <div class="win-controls">
+               <div class="win-btn" onclick="minimizeWindow('win-browser')"><i class="fas fa-window-minimize"></i></div>
+               <div class="win-btn" onclick="toggleMaximize('win-browser')"><i class="far fa-square"></i></div>
+               <div class="win-btn close" onclick="closeWindow('win-browser')"><i class="fas fa-times"></i></div>
+            </div>
+         </div>
+         <div class="win-content" style="display:flex; flex-direction:column;">
+            <div class="browser-nav">
+               <div class="nav-btn" onclick="alert('Back functionality simulated.')"><i class="fas fa-arrow-left"></i></div>
+               <div class="nav-btn" onclick="alert('Forward functionality simulated.')"><i class="fas fa-arrow-right"></i></div>
+               <div class="nav-btn" onclick="spinIcon(this)"><i class="fas fa-redo"></i></div>
+               <div class="url-bar">localhost/ai-school-helper/index.html</div>
+               <div class="nav-btn"><i class="fas fa-bars"></i></div>
+            </div>
+            <div class="web-container">
+               <div class="web-header">
+                  <div class="web-logo"><i class="fas fa-robot"></i> AI School Helper</div>
+                  <div class="web-nav">
+                     <a onclick="showSection('sec-home', this)" class="active">Home</a>
+                     <a onclick="showSection('sec-about', this)">About Us</a>
+                     <a onclick="showSection('sec-story', this)">Our Story</a>
+                     <a onclick="showSection('sec-parts', this)">Parts List</a>
+                     <a onclick="showSection('sec-design', this)">Design Process</a>
+                     <a onclick="showSection('sec-how', this)">How it works</a>
+                  </div>
+               </div>
+               <div id="sec-home" class="page-section active">
+                  <div style="text-align: center; padding: 40px 0;">
+                     <h1 style="font-size: 48px; color: var(--highlight);">Your Local AI Study Buddy</h1>
+                     <p style="font-size: 20px;">Powered by Raspberry Pi 5. Private. Offline. Voice Activated.</p>
+                  </div>
+                  <div class="feature-grid">
+                     <div class="feature-card">
+                        <i class="fas fa-microchip feature-icon"></i>
+                        <h3>Local Intelligence</h3>
+                        <p>Runs a powerful LLM directly on the Raspberry Pi 5. No internet required for questions or homework planning.</p>
+                     </div>
+                     <div class="feature-card">
+                        <i class="fas fa-microphone-alt feature-icon"></i>
+                        <h3>Voice Interaction</h3>
+                        <p>Just ask! The system captures your voice via USB Mic and responds instantly through the speaker.</p>
+                     </div>
+                     <div class="feature-card">
+                        <i class="fas fa-calendar-check feature-icon"></i>
+                        <h3>Homework Planner</h3>
+                        <p>Tell the AI your assignments. It stores them and provides spoken reminders so you never miss a deadline.</p>
+                     </div>
+                  </div>
+               </div>
+               <div id="sec-about" class="page-section">
+                  <h1>Meet the Team</h1>
+                  <p>We are a group of passionate students dedicated to making education smarter using open-source hardware.</p>
+                  <div class="team-grid">
+                     <div class="team-member">
+                        <div class="member-img"><i class="fas fa-user"></i></div>
+                        <div>
+                           <h3>Kavinayan Gopal Senthil</h3>
+                           <strong style="color: var(--highlight);">Lead Developer &amp; Web Architect</strong>
+                           <p style="font-size: 14px; margin-top: 5px;">Built the website interface and programmed the Python backend for the AI assistant.</p>
+                        </div>
+                     </div>
+                     <div class="team-member">
+                        <div class="member-img"><i class="fas fa-user"></i></div>
+                        <div>
+                           <h3>Jiwoon Park</h3>
+                           <strong style="color: var(--highlight);">3D Modeler &amp; Content Creator</strong>
+                           <p style="font-size: 14px; margin-top: 5px;">Designed the 3D-printed enclosure for the Pi and created the project video and documentation.</p>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+               <div id="sec-story" class="page-section">
+                  <h1>Our Story</h1>
+                  <p style="font-size: 18px;">Why we built the AI School Helper.</p>
+                  <p>We noticed that many students struggle with time management and organization. While there are many apps, checking a phone often leads to distractions. We wanted a solution that was <strong>voice-first</strong> and <strong>distraction-free</strong>.</p>
+                  <p>We chose the <strong>Raspberry Pi 5</strong> because its enhanced processing power finally makes running local AI models possible. This ensures student privacy—no data leaves the device.</p>
+                  <p>Our journey began with simple Python scripts and evolved into a fully integrated hardware assistant that sits on your desk, ready to help plan your day.</p>
+                  <div style="background: #eef; padding: 20px; border-left: 5px solid var(--highlight); margin-top: 20px;">
+                     <strong>Mission:</strong> To provide a private, offline AI tutor for every student desk.
+                  </div>
+               </div>
+               <div id="sec-parts" class="page-section">
+                  <h1>Parts List</h1>
+                  <p>The hardware components used to build our prototype. Hover over the cards to see them up close!</p>
+                  <div class="parts-grid">
+                     <div class="part-card">
+                        <div class="part-img-container"><img src="pi5.jpg" alt="Raspberry Pi 5" onerror="this.src='https://via.placeholder.com/200x150?text=Pi+5'"></div>
+                        <div class="part-info"><h3>Raspberry Pi 5</h3><p>4GB RAM Model for optimal AI performance.</p><span class="part-qty">Qty: 1</span></div>
+                     </div>
+                     <div class="part-card">
+                        <div class="part-img-container"><img src="sdcard.jpg" alt="MicroSD Card" onerror="this.src='https://via.placeholder.com/200x150?text=SD+Card'"></div>
+                        <div class="part-info"><h3>MicroSD Card</h3><p>32GB (OS &amp; AI Models).</p><span class="part-qty">Qty: 1</span></div>
+                     </div>
+                     <div class="part-card">
+                        <div class="part-img-container"><img src="mic.jpg" alt="USB Mic" onerror="this.src='https://via.placeholder.com/200x150?text=Mic'"></div>
+                        <div class="part-info"><h3>USB Microphone</h3><p>Omnidirectional mini microphone.</p><span class="part-qty">Qty: 1</span></div>
+                     </div>
+                     <div class="part-card">
+                        <div class="part-img-container"><img src="speaker.jpg" alt="Speaker" onerror="this.src='https://via.placeholder.com/200x150?text=Speaker'"></div>
+                        <div class="part-info"><h3>Speaker</h3><p>3.5mm Jack or USB Speaker.</p><span class="part-qty">Qty: 1</span></div>
+                     </div>
+                     <div class="part-card">
+                        <div class="part-img-container"><img src="power.jpg" alt="Power Supply" onerror="this.src='https://via.placeholder.com/200x150?text=Power'"></div>
+                        <div class="part-info"><h3>Power Supply</h3><p>27W USB-C Power Supply.</p><span class="part-qty">Qty: 1</span></div>
+                     </div>
+                     <div class="part-card">
+                        <div class="part-img-container"><img src="case.jpg" alt="Case" onerror="this.src='https://via.placeholder.com/200x150?text=Case'"></div>
+                        <div class="part-info"><h3>3D Printed Case</h3><p>Custom enclosure (PLA Filament).</p><span class="part-qty">Qty: 1</span></div>
+                     </div>
+                  </div>
+               </div>
+               <div id="sec-design" class="page-section">
+                  <h1>Design Process</h1>
+                  <p>From sketches to the final product.</p>
+                  <h2>1. Initial Sketches</h2>
+                  <p>We started by drawing our ideas on paper to figure out the best form factor for a desk assistant.</p>
+                  <div class="design-gallery">
+                     <div class="design-item" data-label="Hand Drawn Sketch Placeholder"><i class="fas fa-pencil-ruler" style="font-size: 40px;"></i></div>
+                     <div class="design-item" data-label="Concept Art Placeholder"><i class="fas fa-book-open" style="font-size: 40px;"></i></div>
+                  </div>
+                  <h2>2. 3D Modeling (OnShape)</h2>
+                  <p>We used OnShape to design a custom case that fits the Pi 5 and manages cable flow.</p>
+                  <div class="design-gallery">
+                     <div class="design-item" data-label="OnShape Screenshot Placeholder"><i class="fas fa-cubes" style="font-size: 40px;"></i></div>
+                     <div class="design-item" data-label="CAD Assembly Placeholder"><i class="fas fa-layer-group" style="font-size: 40px;"></i></div>
+                  </div>
+                  <h2>3. Prototyping</h2>
+                  <p>See our system in action.</p>
+                  <div class="design-gallery">
+                     <div class="design-item" data-label="Printing GIF Placeholder"><i class="fas fa-print" style="font-size: 40px;"></i></div>
+                     <div class="design-item" data-label="System Demo GIF Placeholder"><i class="fas fa-video" style="font-size: 40px;"></i></div>
+                  </div>
+               </div>
+               <div id="sec-how" class="page-section">
+                  <h1>How it works</h1>
+                  <p>AI School Helper is driven by a Python assistant named <strong>Zap</strong>. Here is the full path from your voice to the answer you hear—written so anyone can follow along.</p>
+                  <h2>1. Wake word and recording</h2>
+                  <p>The Pi listens for a wake phrase (for example, “Hey Zap”). When it hears it, the USB microphone records what you say next until you pause. That gives the system one clear sentence or question to work with.</p>
+                  <h2>2. Speech → text</h2>
+                  <p>The recorded audio is run through a speech recognition model (Whisper). It turns your spoken words into plain text, similar to live captions.</p>
+                  <h2>3. Figuring out what you meant</h2>
+                  <p>The program reads that text and picks a path:</p>
+                  <p><strong>Google Calendar or Docs</strong> — If you turned on Google and your words sound like scheduling or working with a document, it calls Google’s services.</p>
+                  <p><strong>Homework planner</strong> — If you are adding, listing, or checking off homework, it updates a small database stored on the Pi.</p>
+                  <p><strong>General question</strong> — Otherwise it sends your text to a <strong>local AI</strong> (via Ollama) that runs on the Raspberry Pi, so answers do not require the cloud.</p>
+                  <h2>4. Building the reply</h2>
+                  <p>The AI writes a short answer. Any screen-style formatting (like stars used for bold) is removed so the next step does not read symbols out loud.</p>
+                  <h2>5. Text → speech</h2>
+                  <p>A voice engine (Piper) turns the final text into sound, which plays through your speaker. That is the voice you hear back.</p>
+                  <h2>Privacy in short</h2>
+                  <p>Homework and everyday questions can stay on the device. Hooking up Google for calendar or Docs is optional—you only sign in if you want those features.</p>
+                  <h2>Open source</h2>
+                  <p>Full source code for Zap: <a href="https://github.com/kavi617/Zap" target="_blank" rel="noopener">github.com/kavi617/Zap</a></p>
+               </div>
+               <div style="height: 50px;"></div>
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-files" style="top: 80px; left: 100px; width: 600px; height: 400px;">
+         <div class="title-bar" id="win-files-header">
+            <span>File Manager - /home/pi</span>
+            <div class="win-controls">
+               <div class="win-btn" onclick="minimizeWindow('win-files')"><i class="fas fa-window-minimize"></i></div>
+               <div class="win-btn" onclick="toggleMaximize('win-files')"><i class="far fa-square"></i></div>
+               <div class="win-btn close" onclick="closeWindow('win-files')"><i class="fas fa-times"></i></div>
+            </div>
+         </div>
+         <div class="win-content">
+            <div class="file-toolbar">
+               <div class="nav-btn"><i class="fas fa-arrow-up"></i></div>
+               <div class="nav-btn"><i class="fas fa-home"></i></div>
+               <div class="file-path">/home/pi</div>
+            </div>
+            <div class="file-grid" id="file-grid-content">
+               <div class="window-icon" onclick="openWindow('win-trash')"><i class="fas fa-folder" style="color:#d35400"></i><span>Desktop</span></div>
+               <div class="window-icon"><i class="fas fa-folder" style="color:#f1c40f"></i><span>Documents</span></div>
+               <div class="window-icon"><i class="fas fa-folder" style="color:#2980b9"></i><span>Downloads</span></div>
+               <div class="window-icon"><i class="fas fa-folder" style="color:#8e44ad"></i><span>Music</span></div>
+               <div class="window-icon"><i class="fas fa-file-image" style="color:#27ae60"></i><span>diagram.png</span></div>
+               <div class="window-icon"><i class="fas fa-file-code" style="color:#34495e"></i><span>main.py</span></div>
+               <div class="window-icon"><i class="fas fa-music" style="color:#3498db"></i><span>music.mp3</span></div>
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-terminal" style="top: 100px; left: 150px; width: 600px; height: 350px;">
+         <div class="title-bar" id="win-terminal-header" style="background:#444; color:white;">
+            <span>pi@raspberrypi: ~</span>
+            <div class="win-controls">
+               <div class="win-btn" onclick="minimizeWindow('win-terminal')"><i class="fas fa-window-minimize"></i></div>
+               <div class="win-btn" onclick="toggleMaximize('win-terminal')"><i class="far fa-square"></i></div>
+               <div class="win-btn close" onclick="closeWindow('win-terminal')"><i class="fas fa-times"></i></div>
+            </div>
+         </div>
+         <div class="win-content" style="background: #1e1e1e; display:flex; flex-direction:column;">
+            <div id="term-output">
+               <div class="term-line">Linux raspberrypi 6.1.0-rpi7-rpi-2712 #1 SMP PREEMPT Debian 1:6.1.63-1+rpt1</div>
+               <div class="term-line">Type 'help' for commands.</div>
+            </div>
+            <div class="term-input-line" style="padding: 0 10px 10px 10px;">
+               <span class="prompt">pi@raspberrypi:~ $</span>
+               <input type="text" id="term-input" autocomplete="off" spellcheck="false">
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-calc" style="top: 120px; left: 400px; width: 260px; height: 350px;">
+         <div class="title-bar" id="win-calc-header">
+            <span>Calculator</span>
+            <div class="win-controls"><div class="win-btn close" onclick="closeWindow('win-calc')"><i class="fas fa-times"></i></div></div>
+         </div>
+         <div class="win-content">
+            <div class="calc-body">
+               <div class="calc-display" id="calc-display">0</div>
+               <div class="calc-grid">
+                  <div class="calc-btn" onclick="calcClear()">C</div>
+                  <div class="calc-btn" onclick="calcInput('/')">/</div>
+                  <div class="calc-btn" onclick="calcInput('*')">x</div>
+                  <div class="calc-btn" onclick="calcInput('back')">DEL</div>
+                  <div class="calc-btn" onclick="calcInput('7')">7</div>
+                  <div class="calc-btn" onclick="calcInput('8')">8</div>
+                  <div class="calc-btn" onclick="calcInput('9')">9</div>
+                  <div class="calc-btn op" onclick="calcInput('-')">-</div>
+                  <div class="calc-btn" onclick="calcInput('4')">4</div>
+                  <div class="calc-btn" onclick="calcInput('5')">5</div>
+                  <div class="calc-btn" onclick="calcInput('6')">6</div>
+                  <div class="calc-btn op" onclick="calcInput('+')">+</div>
+                  <div class="calc-btn" onclick="calcInput('1')">1</div>
+                  <div class="calc-btn" onclick="calcInput('2')">2</div>
+                  <div class="calc-btn" onclick="calcInput('3')">3</div>
+                  <div class="calc-btn eq" style="grid-row: span 2" onclick="calcResult()">=</div>
+                  <div class="calc-btn" style="grid-column: span 2" onclick="calcInput('0')">0</div>
+                  <div class="calc-btn" onclick="calcInput('.')">.</div>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-text" style="top: 60px; left: 300px; width: 500px; height: 400px;">
+         <div class="title-bar" id="win-text-header">
+            <span>Text Editor</span>
+            <div class="win-controls"><div class="win-btn close" onclick="closeWindow('win-text')"><i class="fas fa-times"></i></div></div>
+         </div>
+         <div class="win-content">
+            <div class="text-editor-toolbar">
+               <button onclick="alert('File Saved to /home/pi/Documents/note.txt')"><i class="fas fa-save"></i> Save</button>
+               <button onclick="document.getElementById('text-content').value=''"><i class="fas fa-file"></i> New</button>
+            </div>
+            <div class="text-area-container"><textarea id="text-content" placeholder="Type here..."></textarea></div>
+         </div>
+      </div>
+      <div class="window" id="win-thonny" style="top: 40px; left: 150px; width: 700px; height: 500px;">
+         <div class="title-bar" id="win-thonny-header">
+            <span>Thonny - /home/pi/main.py</span>
+            <div class="win-controls"><div class="win-btn close" onclick="closeWindow('win-thonny')"><i class="fas fa-times"></i></div></div>
+         </div>
+         <div class="win-content">
+            <div class="thonny-layout">
+               <div class="thonny-toolbar">
+                  <div class="thonny-play" onclick="runPython()"><i class="fas fa-play-circle" style="font-size:24px;"></i></div>
+                  <div class="thonny-stop" onclick="stopPython()"><i class="fas fa-stop-circle" style="font-size:24px;"></i></div>
+               </div>
+               <textarea id="thonny-code">import time
+
+def greet():
+    print("Hello from Raspberry Pi 5!")
+    print("AI Model: Loaded")
+    for i in range(3):
+        print(f"Processing... {i+1}")
+        time.sleep(1)
+    print("Done.")
+
+greet()
+</textarea>
+               <div id="thonny-shell">
+                  <div style="color:#666;">Python 3.11.2 (main, Mar 13 2023, 12:18:29) [GCC 12.2.0] on linux</div>
+                  <div style="color:#666;">Type "help", "copyright", "credits" or "license()" for more information.</div>
+                  <div>>>> <span id="py-output"></span></div>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-trash" style="top: 150px; left: 200px; width: 500px; height: 350px;">
+         <div class="title-bar" id="win-trash-header">
+            <span>Trash</span>
+            <div class="win-controls">
+               <div class="win-btn" onclick="minimizeWindow('win-trash')"><i class="fas fa-window-minimize"></i></div>
+               <div class="win-btn close" onclick="closeWindow('win-trash')"><i class="fas fa-times"></i></div>
+            </div>
+         </div>
+         <div class="win-content" style="padding: 20px; display: flex; flex-wrap: wrap; gap: 20px; align-content: flex-start;">
+            <div class="window-icon" onclick="trashAction('bad_meme.jpg')">
+               <i class="fas fa-file-image" style="color: #e67e22;"></i><span>bad_meme.jpg</span>
+            </div>
+            <div class="window-icon" onclick="trashAction('essay.docx')">
+               <i class="fas fa-file-word" style="color: #3498db;"></i><span>essay.docx</span>
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-media" style="top: 150px; left: 300px; width: 350px; height: 250px;">
+         <div class="title-bar" id="win-media-header" style="background: #333; color: white;">
+            <span>Media Player - music.mp3</span>
+            <div class="win-controls"><div class="win-btn close" onclick="closeWindow('win-media'); stopMusic();"><i class="fas fa-times"></i></div></div>
+         </div>
+         <div class="win-content">
+            <div class="media-player-body">
+               <i class="fas fa-compact-disc media-icon" id="media-disc"></i>
+               <div style="font-weight: bold;">Now Playing: music.mp3</div>
+               <div class="media-controls">
+                  <button class="media-btn" onclick="stopMusic()"><i class="fas fa-stop"></i></button>
+                  <button class="media-btn" onclick="playMusic()"><i class="fas fa-play"></i></button>
+               </div>
+               <div style="display:flex; align-items:center; gap:10px;">
+                  <i class="fas fa-volume-down" style="font-size:12px;"></i>
+                  <input type="range" class="volume-slider" min="0" max="1" step="0.1" value="0.8" onchange="setVolume(this.value)">
+                  <i class="fas fa-volume-up" style="font-size:12px;"></i>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="window" id="win-snake" style="top: 100px; left: 100px; width: 400px; height: 440px;">
+         <div class="title-bar" id="win-snake-header">
+            <span>Snake Game</span>
+            <div class="win-controls"><div class="win-btn close" onclick="closeWindow('win-snake'); stopSnake();"><i class="fas fa-times"></i></div></div>
+         </div>
+         <div class="win-content" style="background: #222; display: flex; flex-direction: column; align-items: center; justify-content: center; outline: none;" tabindex="0" id="snake-container" onkeydown="handleSnakeKey(event)">
+            <canvas id="snake-canvas" width="300" height="300" style="width: 300px; height: 300px; border: 2px solid #555; background: black;"></canvas>
+            <div style="color: white; margin-top: 10px; font-family: monospace;">Use Arrow Keys. Click here to focus.</div>
+            <button style="margin-top: 10px;" onclick="initSnake()">Restart</button>
+         </div>
+      </div>
+      <script>
+         function playBluetoothSound() {
+           const audio = new Audio('bluetooth.mp3');
+           audio.play().catch(e => { alert("Playing sound: bluetooth.mp3 (Ensure file exists)"); });
+         }
+         let musicAudio = new Audio('music.mp3');
+         musicAudio.loop = true;
+         function playMusic() {
+            musicAudio.play().catch(e => alert("Could not find music.mp3"));
+            document.getElementById('media-disc').style.animationPlayState = 'running';
+         }
+         function stopMusic() {
+            musicAudio.pause();
+            musicAudio.currentTime = 0;
+            document.getElementById('media-disc').style.animationPlayState = 'paused';
+         }
+         function setVolume(val) { musicAudio.volume = val; }
+         let wifiOn = true;
+         function toggleWifi() {
+           wifiOn = !wifiOn;
+           const btn = document.getElementById('btn-wifi');
+           if(wifiOn) {
+               btn.innerHTML = '<i class="fas fa-wifi"></i>';
+               btn.style.color = "var(--panel-text)";
+               alert("WiFi: Connected to Pi_5Ghz");
+           } else {
+               btn.innerHTML = '<i class="fas fa-wifi" style="opacity:0.5"></i>';
+               btn.style.color = "#aaa";
+               alert("WiFi: Disconnected");
+           }
+         }
+         let muted = false;
+         function toggleVolume() {
+           muted = !muted;
+           const btn = document.getElementById('btn-vol');
+           if(muted) btn.innerHTML = '<i class="fas fa-volume-mute"></i> <span id="vol-text">Muted</span>';
+           else btn.innerHTML = '<i class="fas fa-volume-up"></i> <span id="vol-text">80%</span>';
+         }
+         document.addEventListener('DOMContentLoaded', () => {
+           const bootLog = document.getElementById('boot-log');
+           const bootScreen = document.getElementById('boot-screen');
+           const bootMessages = [
+             "[ OK ] Started Kernel.",
+             "[ OK ] Mounted / (Root Filesystem).",
+             "[INFO] Detecting Raspberry Pi 5 Hardware...",
+             "[ OK ] CPU: BCM2712 Quad-core Cortex-A76 @ 2.4GHz",
+             "[ OK ] RAM: 8GB LPDDR4X detected.",
+             "[ OK ] Initializing VideoCore VII GPU...",
+             "[INFO] Loading Local AI Models (LLM)...",
+             "[ OK ] AI Engine Ready.",
+             "Welcome to Raspberry Pi OS."
+           ];
+           let delay = 0;
+           bootMessages.forEach((msg) => {
+              delay += Math.random() * 300 + 100;
+              setTimeout(() => {
+                const div = document.createElement('div');
+                div.className = 'log-line';
+                div.innerText = msg;
+                bootLog.appendChild(div);
+                bootLog.scrollTop = bootLog.scrollHeight;
+              }, delay);
+           });
+           setTimeout(() => {
+             bootScreen.style.opacity = '0';
+             setTimeout(() => {
+               bootScreen.style.display = 'none';
+               openWindow('win-browser');
+             }, 1000);
+           }, delay + 1000);
+           setInterval(updateClock, 1000);
+           updateClock();
+           document.querySelectorAll('.window').forEach(win => dragElement(win));
+           document.getElementById('term-input').addEventListener('keydown', function(e) {
+               if (e.key === 'Enter') {
+                   handleTerminalCommand(this.value);
+                   this.value = '';
+               }
+           });
+         });
+         function updateClock() {
+           const now = new Date();
+           document.getElementById('clock').innerText = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+         }
+         let clockClicks = 0;
+         function checkEasterEggTime() {
+             clockClicks++;
+             if(clockClicks === 5) {
+                 alert("⏰ EASTER EGG FOUND! \nTime is an illusion.");
+                 clockClicks = 0;
+             }
+         }
+         function openWindow(id) {
+           const win = document.getElementById(id);
+           if(!win) return;
+           win.style.display = 'flex';
+           setTimeout(() => win.classList.add('visible'), 10);
+           bringToFront(win);
+           if(id === 'win-terminal') document.getElementById('term-input').focus();
+           if(id === 'win-snake') initSnake();
+         }
+         function closeWindow(id) {
+           const win = document.getElementById(id);
+           win.classList.remove('visible');
+           setTimeout(() => { win.style.display = 'none'; win.classList.remove('maximized'); }, 200);
+         }
+         function minimizeWindow(id) {
+             const win = document.getElementById(id);
+             win.classList.remove('visible');
+             setTimeout(() => { win.style.display = 'none'; }, 200);
+         }
+         function toggleMaximize(id) { document.getElementById(id).classList.toggle('maximized'); }
+         function bringToFront(win) {
+            document.querySelectorAll('.window').forEach(w => w.style.zIndex = 100);
+            win.style.zIndex = 101;
+         }
+         function handleTerminalCommand(cmd) {
+             const output = document.getElementById('term-output');
+             const line = document.createElement('div');
+             line.className = 'term-line';
+             line.innerHTML = `<span class="prompt">pi@raspberrypi:~ $</span> ${cmd}`;
+             output.appendChild(line);
+             let response = "";
+             const args = cmd.trim().split(' ');
+             const c = args[0].toLowerCase();
+             if(c === 'matrix') {
+                output.innerHTML = "";
+                output.classList.add('matrix-mode');
+                setInterval(() => {
+                   const chars = "0123456789ABCDEF";
+                   output.innerHTML += chars[Math.floor(Math.random() * chars.length)] + " ";
+                   output.scrollTop = output.scrollHeight;
+                }, 50);
+                return;
+             }
+             else if(c === 'snake') {
+                response = "Launching Snake...";
+                setTimeout(() => openWindow('win-snake'), 500);
+             }
+             else if(c === 'search') {
+                const query = args.slice(1).join(' ');
+                if(!query) {
+                    response = "Usage: search [query] (e.g. search python)";
+                } else {
+                    const respLine = document.createElement('div');
+                    respLine.className = 'term-line';
+                    respLine.innerHTML = `Searching Wikipedia for "${query}"...`;
+                    output.appendChild(respLine);
+                    fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&prop=info&inprop=url&utf8=&format=json&origin=*&srlimit=3&srsearch=${encodeURIComponent(query)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if(data.query && data.query.search && data.query.search.length > 0) {
+                            data.query.search.forEach(item => {
+                                const div = document.createElement('div');
+                                div.className = 'term-line';
+                                div.style.marginBottom = "10px";
+                                const cleanSnippet = item.snippet.replace(/<\/?[^>]+(>|$)/g, "");
+                                div.innerHTML = `<strong style="color:#63b175">${item.title}</strong><br> > ${cleanSnippet}...`;
+                                output.appendChild(div);
+                            });
+                        } else {
+                            const div = document.createElement('div');
+                            div.className = 'term-line';
+                            div.innerHTML = "No results found.";
+                            output.appendChild(div);
+                        }
+                        output.scrollTop = output.scrollHeight;
+                    })
+                    .catch(err => {
+                        const div = document.createElement('div');
+                        div.className = 'term-line';
+                        div.innerHTML = "Error fetching data.";
+                        output.appendChild(div);
+                    });
+                    return;
+                }
+             }
+             else if(c === 'help') response = "Commands: help, ls, whoami, date, echo, clear, exit, snake, matrix, search [query]";
+             else if(c === 'ls') response = "Desktop  Documents  Downloads  Music  Pictures  music.mp3";
+             else if(c === 'whoami') response = "pi";
+             else if(c === 'date') response = new Date().toString();
+             else if(c === 'echo') response = args.slice(1).join(' ');
+             else if(c === 'clear') { output.innerHTML = ''; return; }
+             else if(c === 'exit') { closeWindow('win-terminal'); return; }
+             else if(cmd.trim() !== "") response = `bash: ${c}: command not found`;
+             if(response) {
+                 const respLine = document.createElement('div');
+                 respLine.className = 'term-line';
+                 respLine.innerHTML = response;
+                 output.appendChild(respLine);
+             }
+             output.scrollTop = output.scrollHeight;
+         }
+         let calcExp = "";
+         function calcInput(val) {
+             const display = document.getElementById('calc-display');
+             if(val === 'back') calcExp = calcExp.slice(0, -1);
+             else calcExp += val;
+             display.innerText = calcExp || "0";
+         }
+         function calcClear() { calcExp = ""; document.getElementById('calc-display').innerText = "0"; }
+         function calcResult() {
+             try {
+                 if(calcExp.includes("/0") || calcExp.includes("/ 0")) {
+                    alert("💥 ERROR: Universe Implosion Imminent!");
+                    document.getElementById('calc-display').innerText = "∞"; calcExp = ""; return;
+                 }
+                 const res = eval(calcExp);
+                 document.getElementById('calc-display').innerText = res;
+                 calcExp = String(res);
+             } catch(e) { document.getElementById('calc-display').innerText = "Error"; calcExp = ""; }
+         }
+         function runPython() { document.getElementById('py-output').innerHTML = "<br>Running...<br>Hello from Pi 5!<br>Done.<br>>>> "; }
+         function stopPython() { document.getElementById('py-output').innerHTML = "<br>KeyboardInterrupt<br>>>> "; }
+         function trashAction(filename) {
+             if(confirm(`Delete ${filename}?`)) alert(`${filename} deleted.`);
+             else alert(`${filename} restored.`);
+         }
+         function spinIcon(el) {
+             el.querySelector('i').style.transition = 'transform 0.5s';
+             el.querySelector('i').style.transform = 'rotate(360deg)';
+             setTimeout(() => el.querySelector('i').style.transform = 'none', 500);
+         }
+         function showSection(secId, linkEl) {
+           document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+           document.getElementById(secId).classList.add('active');
+           document.querySelectorAll('.web-nav a').forEach(a => a.classList.remove('active'));
+           linkEl.classList.add('active');
+         }
+         function dragElement(elmnt) {
+           var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+           const header = document.getElementById(elmnt.id + "-header");
+           if (header) header.onmousedown = dragMouseDown;
+           else elmnt.onmousedown = dragMouseDown;
+           function dragMouseDown(e) {
+             if(elmnt.classList.contains('maximized')) return;
+             e = e || window.event; e.preventDefault();
+             pos3 = e.clientX; pos4 = e.clientY;
+             document.onmouseup = closeDragElement; document.onmousemove = elementDrag;
+             bringToFront(elmnt);
+           }
+           function elementDrag(e) {
+             e = e || window.event; e.preventDefault();
+             pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY;
+             pos3 = e.clientX; pos4 = e.clientY;
+             elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
+             elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
+           }
+           function closeDragElement() { document.onmouseup = null; document.onmousemove = null; }
+         }
+         function toggleMenu() {
+           const menu = document.getElementById('start-menu');
+           menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+         }
+         document.addEventListener('click', (e) => {
+            const menu = document.getElementById('start-menu');
+            if(e.target.closest('#start-menu') || e.target.closest('.panel-left .panel-btn')) return;
+            menu.style.display = 'none';
+         });
+         let snakeInterval;
+         let snake = [];
+         let food = {};
+         let dir = "right";
+         const snakeSize = 20;
+         function initSnake() {
+            const cvs = document.getElementById('snake-canvas');
+            const ctx = cvs.getContext('2d');
+            snake = [{x: 140, y: 140}, {x: 120, y: 140}, {x: 100, y: 140}];
+            dir = "right";
+            createFood();
+            if(snakeInterval) clearInterval(snakeInterval);
+            snakeInterval = setInterval(() => drawSnake(ctx), 100);
+            document.getElementById('snake-container').focus();
+         }
+         function stopSnake() { clearInterval(snakeInterval); }
+         function createFood() {
+            food = { x: Math.floor(Math.random() * 15) * snakeSize, y: Math.floor(Math.random() * 15) * snakeSize };
+         }
+         function drawSnake(ctx) {
+             ctx.fillStyle = "black"; ctx.fillRect(0, 0, 300, 300);
+             let nx = snake[0].x; let ny = snake[0].y;
+             if(dir === "right") nx += snakeSize;
+             else if(dir === "left") nx -= snakeSize;
+             else if(dir === "up") ny -= snakeSize;
+             else if(dir === "down") ny += snakeSize;
+             if(nx < 0 || nx >= 300 || ny < 0 || ny >= 300 || checkSelfCollision(nx, ny)) {
+                 ctx.fillStyle = "white"; ctx.font = "20px Arial"; ctx.fillText("Game Over", 100, 150);
+                 clearInterval(snakeInterval); return;
+             }
+             let tail = {x: nx, y: ny};
+             if(nx === food.x && ny === food.y) { createFood(); snake.unshift(tail); }
+             else { snake.pop(); snake.unshift(tail); }
+             ctx.fillStyle = "#2ecc71";
+             snake.forEach(p => ctx.fillRect(p.x, p.y, snakeSize-2, snakeSize-2));
+             ctx.fillStyle = "#e74c3c";
+             ctx.fillRect(food.x, food.y, snakeSize-2, snakeSize-2);
+         }
+         function checkSelfCollision(x, y) {
+             for(let i=0; i<snake.length; i++) {
+                 if(snake[i].x === x && snake[i].y === y) return true;
+             }
+             return false;
+         }
+         function handleSnakeKey(e) {
+             if(e.key === "ArrowRight" && dir !== "left") dir = "right";
+             else if(e.key === "ArrowLeft" && dir !== "right") dir = "left";
+             else if(e.key === "ArrowUp" && dir !== "down") dir = "up";
+             else if(e.key === "ArrowDown" && dir !== "up") dir = "down";
+         }
+      </script>
+   </body>
+</html>
