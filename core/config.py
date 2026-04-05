@@ -35,7 +35,7 @@ def _env_bool(key: str, default: bool) -> bool:
 # Ollama — short answers for sub‑5s voice turns (use a small fast model, e.g. qwen2:0.5b)
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = _env("OLLAMA_MODEL", "qwen2:0.5b")
-OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 8)
+OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 30)
 # Long Google Doc / Gmail summarization — allow enough time for local Ollama to finish
 OLLAMA_TIMEOUT_GOOGLE = _env_int("OLLAMA_TIMEOUT_GOOGLE", 180)
 OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 56)
