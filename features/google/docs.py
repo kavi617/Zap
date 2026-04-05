@@ -8,6 +8,9 @@ from features.google.docs_format import build_requests_from_markdown
 
 logger = logging.getLogger(__name__)
 
+# Google Docs API: max 50 requests per batchUpdate; exceed → error or partial apply
+_DOCS_BATCH_SIZE = 50
+
 _last_doc_id: Optional[str] = None
 _last_doc_title: str = ""
 
@@ -30,7 +33,9 @@ def create_document_rich(title: str, markdown_body: str) -> tuple[str, str]:
             raise RuntimeError("No documentId from create")
         reqs = build_requests_from_markdown(markdown_body)
         if reqs:
-            svc.documents().batchUpdate(documentId=doc_id, body={"requests": reqs}).execute()
+            for start in range(0, len(reqs), _DOCS_BATCH_SIZE):
+                chunk = reqs[start : start + _DOCS_BATCH_SIZE]
+                svc.documents().batchUpdate(documentId=doc_id, body={"requests": chunk}).execute()
         link = f"https://docs.google.com/document/d/{doc_id}/edit"
         _last_doc_id = doc_id
         _last_doc_title = title.strip()

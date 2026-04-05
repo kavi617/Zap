@@ -1,5 +1,5 @@
 """
-Zap – voice assistant: wake → STT → LLM → streaming TTS, planner, Google, warning daemon.
+Zap – voice assistant: wake → STT → LLM → Piper TTS, planner, Google, warning daemon.
 """
 import logging
 import sys
@@ -18,7 +18,6 @@ console_ui.install_stderr_filter()
 import requests
 
 from core import config
-from core import tts_stream
 from core import warning_daemon
 from core.voice import input as voice_input, stt, llm, tts
 from features.planner import init_db as planner_init_db
@@ -77,30 +76,23 @@ def run_once() -> bool:
     t2 = time.perf_counter()
 
     try:
-        if getattr(config, "USE_STREAMING_TTS", False):
-            console_ui.audio_streaming()
-            tts_stream.speak_streaming_pipeline(llm.voice_reply_chunks(messages, user_text))
+        reply = llm.respond(messages, user_text)
+        t3 = time.perf_counter()
+        if t3 - t2 >= 1.0:
+            console_ui.system_processing(f"LLM ({t3 - t2:.1f}s)")
+        if reply:
+            console_ui.zap_reply_preview(reply)
+            t4 = time.perf_counter()
+            tts.speak(reply)
             t5 = time.perf_counter()
-            llm_dt = t5 - t2
-            if llm_dt >= 1.0:
-                console_ui.system_processing(f"Response complete ({llm_dt:.1f}s)")
-        else:
-            reply = llm.respond(messages, user_text)
-            t3 = time.perf_counter()
-            if t3 - t2 >= 1.0:
-                console_ui.system_processing(f"LLM ({t3 - t2:.1f}s)")
-            if reply:
-                console_ui.zap_reply_preview(reply)
-                t4 = time.perf_counter()
-                tts.speak(reply)
-                t5 = time.perf_counter()
-                if t5 - t4 >= 1.0:
-                    console_ui.system_processing(f"TTS ({t5 - t4:.1f}s)")
+            if t5 - t4 >= 1.0:
+                console_ui.system_processing(f"TTS ({t5 - t4:.1f}s)")
     except Exception as e:
         console_ui.error_line(str(e)[:120])
         logger.exception("Pipeline error")
         try:
             from features.google import auth as gauth
+
             tts.speak(gauth.google_error_message())
         except Exception:
             pass
@@ -122,8 +114,8 @@ def main():
     else:
         console_ui.error_line("Ollama not reachable — check OLLAMA_BASE_URL")
 
-    tts_stream.prewarm()
-    console_ui.system_ok("TTS pipeline ready")
+    tts.prewarm()
+    console_ui.system_ok("TTS ready")
 
     try:
         from features.google import auth as gauth

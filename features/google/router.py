@@ -40,19 +40,41 @@ CAL_PATTERNS = re.compile(
 
 
 def _bg(fn, *args, **kwargs):
-    return _POOL.submit(lambda: fn(*args, **kwargs)).result(timeout=120)
+    # Must exceed OLLAMA_TIMEOUT_GOOGLE + time for Docs API batch calls
+    wait = max(300, int(config.OLLAMA_TIMEOUT_GOOGLE) + 120)
+    return _POOL.submit(lambda: fn(*args, **kwargs)).result(timeout=wait)
 
 
-def _ollama(system: str, user: str) -> str:
+def _ollama(
+    system: str,
+    user: str,
+    *,
+    long_body: bool = False,
+    max_tokens: int | None = None,
+    extended_timeout: bool = False,
+) -> str:
+    if max_tokens is not None:
+        np = max_tokens
+    elif long_body:
+        np = config.OLLAMA_NUM_PREDICT_GOOGLE
+    else:
+        np = config.OLLAMA_NUM_PREDICT_ROUTER
+    use_google_timeout = (
+        long_body
+        or extended_timeout
+        or (max_tokens is not None and max_tokens >= 512)
+    )
+    timeout = config.OLLAMA_TIMEOUT_GOOGLE if use_google_timeout else config.OLLAMA_TIMEOUT
+    temp = 0.45 if long_body or (max_tokens is not None and max_tokens >= 512) else 0.35
     url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
     payload = {
         "model": config.OLLAMA_MODEL,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "stream": False,
-        "options": {"num_predict": getattr(config, "OLLAMA_NUM_PREDICT", 512)},
+        "options": {"num_predict": np, "temperature": temp, "top_k": 32},
     }
     try:
-        r = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT)
+        r = requests.post(url, json=payload, timeout=timeout)
         r.raise_for_status()
         return (r.json().get("message") or {}).get("content", "").strip()
     except Exception as e:
@@ -94,7 +116,7 @@ def _handle_gmail() -> str:
     sys = """You summarize email for voice only. Reply in 2-4 short sentences.
 Count important school-related emails; ignore spam and promotions.
 Never quote full bodies. Example: You have 2 important emails — one from Mrs. Johnson about your project due Monday, and one from the school about picture day."""
-    out = _ollama(sys, f"Summarize for the student:\n{blob}")
+    out = _ollama(sys, f"Summarize for the student:\n{blob}", extended_timeout=True)
     if not out:
         return auth.google_error_message()
     return out
@@ -106,9 +128,10 @@ def _handle_docs_write(user_text: str) -> str:
 - ## for main section titles
 - ### for subsection titles
 - **term** for bold important terms
-- Normal paragraphs between sections
-No meta-commentary, no outline-only content. Full essay or notes."""
-    body = _ollama(sys, user_text)
+- Normal paragraphs between sections (blank line between paragraphs)
+Write the FULL assignment: introduction, body sections, and conclusion as appropriate. Do not stop early, do not summarize with "and so on", do not say you will continue later.
+No meta-commentary before or after the Markdown. No outline-only — deliver complete prose."""
+    body = _ollama(sys, user_text, long_body=True)
     if not body:
         return auth.google_error_message()
     title = _ollama(
@@ -132,8 +155,8 @@ def _handle_docs_edit(user_text: str) -> str:
     doc_id = docs.get_recent_doc_id()
     if not doc_id:
         return "I don't have a recent document to edit. Ask me to write something first."
-    sys = """Output only the new or replacement text to insert. Plain text or short Markdown."""
-    new_part = _ollama(sys, user_text)
+    sys = """Output only the new text to append to the document. Use Markdown (## ### **) like create. Write the complete addition — do not truncate."""
+    new_part = _ollama(sys, user_text, long_body=True)
     if not new_part:
         return auth.google_error_message()
     docs.update_document_body(doc_id, "\n\n" + new_part, replace_all=False)

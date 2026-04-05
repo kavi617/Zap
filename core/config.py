@@ -32,30 +32,36 @@ def _env_bool(key: str, default: bool) -> bool:
     v = os.environ.get(key, "").strip().lower()
     return v in ("1", "true", "yes") if v else default
 
-# Ollama – num_predict caps tokens for faster replies
+# Ollama — short answers for sub‑5s voice turns (use a small fast model, e.g. qwen2:0.5b)
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = _env("OLLAMA_MODEL", "smollm2:135m")
-OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 60)
-OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 80)
+OLLAMA_MODEL = _env("OLLAMA_MODEL", "qwen2:0.5b")
+OLLAMA_TIMEOUT = _env_int("OLLAMA_TIMEOUT", 8)
+# Long Google Doc / Gmail summarization — allow enough time for local Ollama to finish
+OLLAMA_TIMEOUT_GOOGLE = _env_int("OLLAMA_TIMEOUT_GOOGLE", 180)
+OLLAMA_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 64)
+# Full essay/report bodies need a high token cap (384 was cutting output mid‑paragraph)
+OLLAMA_NUM_PREDICT_GOOGLE = _env_int("OLLAMA_NUM_PREDICT_GOOGLE", 4096)
+OLLAMA_NUM_PREDICT_ROUTER = _env_int("OLLAMA_NUM_PREDICT_ROUTER", 160)
+VOICE_REPLY_MAX_CHARS = _env_int("VOICE_REPLY_MAX_CHARS", 220)
 
-# Tutor + planner system prompt — short, conversational voice (addon)
+# Tutor + planner — one or two short sentences, plain words, voice-first
 SYSTEM_PROMPT = _env(
     "SYSTEM_PROMPT",
-    """You are Zap, a friendly student voice assistant. Keep replies short and natural, like a helpful human — not a textbook.
-No bullet points unless the user asks. No long lectures unless they ask for detail. Sound conversational.
-You also track homework. When they want planner actions, reply with one short spoken line, then on a NEW LINE exactly one of:
-- ADD|subject|assignment name|due date and time|estimated time
-- LIST
-- DONE|assignment name or number
-- REMOVE|assignment name or number
-For normal questions (no homework command), just answer briefly. No ADD/LIST/DONE/REMOVE line.""",
+    """You are Zap, a voice-only student helper. Reply in at most two short sentences. Use simple words a kid can hear once and understand.
+No bullet points, no lists, no "first/second/third". No long explanations unless the user clearly asks for detail.
+Homework planner: when they want to add/list/done/remove homework, say one brief line, then on a NEW LINE exactly one of:
+ADD|subject|assignment name|due date and time|estimated time
+LIST
+DONE|assignment name or number
+REMOVE|assignment name or number
+Otherwise just answer the question in plain speech. No ADD/LIST/DONE/REMOVE line.""",
 )
 
 # Audio
 SAMPLE_RATE = _env_int("SAMPLE_RATE", 16000)
 CHANNELS = _env_int("CHANNELS", 1)
 CHUNK_SIZE = _env_int("CHUNK_SIZE", 1024)
-RECORD_SECONDS = _env_int("RECORD_SECONDS", 30)
+RECORD_SECONDS = _env_int("RECORD_SECONDS", 15)
 SILENCE_THRESHOLD = _env_float("SILENCE_THRESHOLD", 0.01)
 MIN_SPEECH_LENGTH = _env_float("MIN_SPEECH_LENGTH", 0.2)
 # End speech ~300ms after silence (energy VAD)
@@ -108,8 +114,7 @@ def _resolve_wake_sfx() -> str:
 
 WAKE_SFX_PATH = _resolve_wake_sfx()
 
-# Addon: Google, streaming TTS, warning daemon
-USE_STREAMING_TTS = _env_bool("USE_STREAMING_TTS", True)
+# Google + warning daemon (voice-only; no streaming LLM/TTS)
 GOOGLE_PREWARM = _env_bool("GOOGLE_PREWARM", True)
 WARNING_DAEMON_ENABLED = _env_bool("WARNING_DAEMON_ENABLED", True)
 

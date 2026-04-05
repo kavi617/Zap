@@ -14,6 +14,17 @@ from features.google import router as google_router
 
 logger = logging.getLogger(__name__)
 
+
+def _truncate_voice(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return text
+    m = config.VOICE_REPLY_MAX_CHARS
+    if len(text) > m:
+        return text[: m - 3] + "..."
+    return text
+
+
 _PLANNER_HINT = re.compile(
     r"\b(add|list|done|remove|homework|assignment|planner)\b",
     re.I,
@@ -31,7 +42,11 @@ def _chat(messages: List[dict]) -> str:
         "model": config.OLLAMA_MODEL,
         "messages": [{"role": "system", "content": config.SYSTEM_PROMPT}] + messages,
         "stream": False,
-        "options": {"num_predict": getattr(config, "OLLAMA_NUM_PREDICT", 80)},
+        "options": {
+            "num_predict": getattr(config, "OLLAMA_NUM_PREDICT", 64),
+            "temperature": 0.35,
+            "top_k": 32,
+        },
     }
     try:
         r = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT)
@@ -110,9 +125,7 @@ def _planner_reply(messages: List[dict], user_text: str) -> str:
     reply = " ".join(reply_lines).strip()
     if not reply:
         return "Done."
-    if len(reply) > 300:
-        reply = reply[:297] + "..."
-    return reply
+    return _truncate_voice(reply)
 
 
 def respond(messages: List[dict], user_text: str) -> str:
@@ -127,29 +140,9 @@ def respond(messages: List[dict], user_text: str) -> str:
         from features.google import auth as gauth
 
         return gauth.google_error_message()
-    return _planner_reply(messages, user_text)
-
-
-def voice_reply_chunks(messages: List[dict], user_text: str):
-    """Yield TTS chunks: Google one block; planner one block; else stream Ollama."""
-    if not (user_text or "").strip():
-        return
-    try:
-        g = google_router.try_google(user_text.strip())
-        if g:
-            yield g
-            return
-    except Exception as e:
-        logger.warning("Google router: %s", e)
-        from features.google import auth as gauth
-
-        yield gauth.google_error_message()
-        return
     if planner_likely(user_text):
-        yield _planner_reply(messages, user_text)
-        return
-    from core.llm_stream import buffer_phrases, stream_ollama_deltas
-
-    for chunk in buffer_phrases(stream_ollama_deltas(messages, user_text)):
-        if chunk:
-            yield chunk
+        return _planner_reply(messages, user_text)
+    raw = _chat(messages + [{"role": "user", "content": user_text.strip()}])
+    if not raw:
+        return "I didn't get that. Try again."
+    return _truncate_voice(raw)

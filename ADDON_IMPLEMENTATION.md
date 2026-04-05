@@ -1,6 +1,6 @@
 # Addon implementation (performance & UX overhaul)
 
-This document lists what was added or changed to match `addon.md` (streaming TTS, VAD, non-blocking wake SFX, Google services, terminal UI, and error handling).
+This document lists what was added or changed to match `addon.md` (VAD, non-blocking wake SFX, Google services, terminal UI, and error handling). The voice path is **non-streaming**: one LLM response, then Piper TTS.
 
 ## New files
 
@@ -13,10 +13,9 @@ This document lists what was added or changed to match `addon.md` (streaming TTS
 
 | Path | Changes |
 |------|---------|
-| `main.py` | Installs stderr filter before other imports; clears screen and prints banner; uses `console_ui` for status lines; wires `tts_stream.speak_streaming_pipeline(llm.voice_reply_chunks(...))`; Google prewarm + async Gmail prefetch/cache; logging default WARNING. |
+| `main.py` | Installs stderr filter before other imports; clears screen and prints banner; uses `console_ui` for status lines; `llm.respond` → `tts.speak`; Google prewarm + async Gmail prefetch/cache; logging default WARNING. |
 | `core/voice/input.py` | Wake SFX in a **daemon thread** (returns immediately). **VAD**: `SILENCE_END_MS` (default **300 ms**). Removed hardcoded `input_device_index`. |
-| `core/config.py` | `SILENCE_END_MS`, voice-style `SYSTEM_PROMPT`; streaming / Google / daemon flags. |
-| `core/tts_stream.py` | **Pipeline**: text queue → Piper synth → WAV queue → playback; feeds from LLM chunk iterator. |
+| `core/config.py` | `SILENCE_END_MS`, voice-style `SYSTEM_PROMPT`; Ollama / Google / daemon flags. |
 | `core/warning_daemon.py` | `[WARN]` line via `console_ui` when alerting. |
 | `features/google/auth.py` | User-facing Google error string. |
 | `features/google/calendar.py` | `list_tomorrow_events`, `find_upcoming_events_matching`, `format_events_conversational`. |
@@ -25,7 +24,7 @@ This document lists what was added or changed to match `addon.md` (streaming TTS
 
 ## Behaviour summary
 
-1. **Streaming TTS** — `speak_streaming_pipeline` + `voice_reply_chunks` for overlapping synth/playback.
+1. **TTS** — Full reply synthesized once via `core/voice/tts.py` after the LLM returns.
 2. **Wake sound** — Non-blocking thread.
 3. **VAD** — ~300 ms configurable silence end.
 4. **Google Calendar** — Week, tomorrow, add, move/reschedule.
