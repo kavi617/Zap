@@ -64,7 +64,7 @@ python main.py
 | `GMAIL_UNREAD_MAX` | Unread messages to fetch for summary (default: 6) |
 | `OLLAMA_NUM_PREDICT_GOOGLE` | Max tokens for Google Docs create/edit LLM output (default: 4096) |
 | `OLLAMA_TIMEOUT_GOOGLE` | Seconds to wait for Gmail summary and long Doc generation (default: 180) |
-| `LOCAL_TIMEZONE` | Optional IANA zone (e.g. `Asia/Kolkata`) for calendar times; empty uses OS local |
+| `LOCAL_TIMEZONE` | IANA zone (e.g. `America/Los_Angeles`) for calendar times; if unset, **auto-detected** from Windows (`tzlocal`) |
 | `VOICE_REPLY_MAX_CHARS` | Cap on spoken reply length (default: 220) |
 | `SILENCE_END_MS` | Silence after you stop talking before clip ends (default: 1000) |
 | `RECORD_SECONDS` | Max recording length cap (default: 30) |

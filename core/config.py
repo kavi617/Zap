@@ -45,8 +45,30 @@ OLLAMA_NUM_PREDICT_ROUTER = _env_int("OLLAMA_NUM_PREDICT_ROUTER", 128)
 OLLAMA_NUM_PREDICT_GMAIL = _env_int("OLLAMA_NUM_PREDICT_GMAIL", 96)
 GMAIL_UNREAD_MAX = _env_int("GMAIL_UNREAD_MAX", 6)
 VOICE_REPLY_MAX_CHARS = _env_int("VOICE_REPLY_MAX_CHARS", 220)
-# Optional IANA zone, e.g. America/New_York or Asia/Kolkata — helps "tomorrow 8am". Empty = OS local time.
-LOCAL_TIMEZONE = _env("LOCAL_TIMEZONE", "")
+def _resolve_local_timezone() -> str:
+    """IANA name from LOCAL_TIMEZONE, else auto-detect from the OS (Calendar + dateparser)."""
+    v = os.environ.get("LOCAL_TIMEZONE", "").strip()
+    if v:
+        return v
+    try:
+        from tzlocal import get_localzone_name
+
+        n = get_localzone_name()
+        return n if n else ""
+    except Exception:
+        pass
+    try:
+        from datetime import datetime
+
+        tz = datetime.now().astimezone().tzinfo
+        if tz is not None and hasattr(tz, "key"):
+            return str(tz.key)
+    except Exception:
+        pass
+    return ""
+
+
+LOCAL_TIMEZONE = _resolve_local_timezone()
 
 # Tutor + planner — one or two short sentences, plain words, voice-first
 SYSTEM_PROMPT = _env(

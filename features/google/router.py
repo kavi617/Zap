@@ -34,7 +34,8 @@ DOCS_EDIT_PATTERNS = re.compile(
     re.I,
 )
 CAL_PATTERNS = re.compile(
-    r"\b(calendar|what'?s\s+due|due\s+this\s+week|due\s+friday|add\s+.*\s+due|schedule)\b",
+    r"\b(calendar|google\s+calendar|cal\s+event|what'?s\s+due|due\s+this\s+week|due\s+friday|"
+    r"add\s+.*\s+due|schedule)\b",
     re.I,
 )
 # Create before list — matches "create a calendar…", "add … due tomorrow…", "schedule …"
@@ -51,6 +52,103 @@ def _wants_calendar_create(low: str) -> bool:
     if re.search(r"\b(make|new)\s+(an?\s+)?(event|reminder|appointment)\b", low):
         return True
     return False
+
+
+_HOUR_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+
+
+def _prepare_calendar_datetime_text(raw: str) -> str:
+    """Make STT phrases parse reliably: 'eight a.m.' → '8 am', 'tomorrow at 8' → 'tomorrow at 8 am'."""
+    s = raw.strip()
+
+    def _repl_spoken_hour(m: re.Match) -> str:
+        w = m.group(1).lower()
+        n = _HOUR_WORDS.get(w)
+        if n is None:
+            return m.group(0)
+        ampm = (m.group(2) or "").strip()
+        return f"at {n} {ampm}".strip() if ampm else f"at {n}"
+
+    s = re.sub(
+        r"\bat\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+        r"(\s+(?:a\.?m\.?|p\.?m\.?))?\b",
+        _repl_spoken_hour,
+        s,
+        flags=re.I,
+    )
+
+    def _spoken_ampm(m: re.Match) -> str:
+        w = m.group(1).lower()
+        n = _HOUR_WORDS.get(w)
+        if n is None:
+            return m.group(0)
+        ap = m.group(2).replace(".", "").lower()
+        if ap.startswith("a"):
+            return f"{n} am"
+        return f"{n} pm"
+
+    s = re.sub(
+        r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+"
+        r"(a\.?m\.?|p\.?m\.?)\b",
+        _spoken_ampm,
+        s,
+        flags=re.I,
+    )
+
+    def _tomorrow_at_hour(m: re.Match) -> str:
+        day, hour_s, ampm = m.group(1), m.group(2), m.group(3)
+        if ampm:
+            return m.group(0)
+        h = int(hour_s)
+        if 1 <= h <= 11:
+            return f"{day} at {h} am"
+        if h == 12:
+            return f"{day} at 12 pm"
+        return m.group(0)
+
+    s = re.sub(
+        r"\b(tomorrow|today)\s+at\s+(\d{1,2})(\s+(?:a\.?m\.?|p\.?m\.?))?\b",
+        _tomorrow_at_hour,
+        s,
+        flags=re.I,
+    )
+    return s
+
+
+def _extract_calendar_title(user_text: str) -> str:
+    """Pull title from '… about my math homework' or '… for math homework …'."""
+    t = user_text.strip()
+    m = re.search(
+        r"\babout\s+(.+?)(?:\s*[,.])?\s*$",
+        t,
+        re.I,
+    )
+    if m:
+        return m.group(1).strip()[:120]
+    m = re.search(
+        r"\babout\s+(.+?)(?=\s+(?:tomorrow|today|at\s|@|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)",
+        t,
+        re.I,
+    )
+    if m:
+        return m.group(1).strip()[:120]
+    m = re.search(r"\bfor\s+(?:my\s+)?(.+?)(?=\s+(?:tomorrow|today|at\s|@)\b)", t, re.I)
+    if m:
+        return m.group(1).strip()[:120]
+    return ""
 
 
 def _normalize_event_start(start: datetime) -> datetime:
@@ -147,22 +245,30 @@ def try_google(user_text: str) -> str | None:
 
 
 def _handle_gmail() -> str:
-    console_ui.intent_line("Google Gmail → fetch unread + brief summary (LLM)")
+    console_ui.intent_line("Google Gmail → priority sort + voice summary (LLM)")
     n = min(8, max(3, int(config.GMAIL_UNREAD_MAX)))
     items = gmail.list_unread(n)
     if not items:
         return "You have no unread emails in your inbox."
+    # No sender names in the prompt — avoids the model reading "From: …" aloud
     lines = []
-    for m in items:
-        lines.append(f"From: {m['from']}\nSubject: {m['subject']}\nSnippet: {m['snippet']}")
-    blob = "\n---\n".join(lines)
-    sys = """Reply in at most 2 short sentences for text-to-speech only.
-Cover only what matters most for a student: deadlines, teachers, school, grades. Ignore ads, shopping, and newsletters.
-Do not list every subject line; merge into one quick overview."""
+    for i, m in enumerate(items, 1):
+        subj = (m.get("subject") or "").strip()
+        snip = (m.get("snippet") or "")[:400]
+        lines.append(f"[{i}] {subj}\n    preview: {snip}")
+    blob = "\n".join(lines)
+    sys = """You help a student triage unread email for VOICE output only.
+
+Step 1 — mentally rank items 1..n by importance for school (deadlines, grades, teachers, assignments first; newsletters and ads last).
+
+Step 2 — reply in at most 2 short sentences with ONLY a merged summary of what matters.
+- Say what they should do or know (e.g. a deadline, homework, exam), in plain language.
+- Do NOT say "email", "inbox", "subject line", or any sender names or email addresses.
+- Do NOT list messages one by one. Do NOT read who sent what."""
     max_tok = getattr(config, "OLLAMA_NUM_PREDICT_GMAIL", 96)
     out = _ollama(
         sys,
-        f"Unread mail:\n{blob}",
+        f"Unread items (most important first by number):\n{blob}",
         extended_timeout=True,
         max_tokens=max_tok,
     )
@@ -240,7 +346,10 @@ def _handle_calendar(user_text: str) -> str:
         if tz:
             dp_settings["TIMEZONE"] = tz
         if dateparser:
-            new_start = dateparser.parse(user_text, settings=dp_settings)
+            new_start = dateparser.parse(
+                _prepare_calendar_datetime_text(user_text),
+                settings=dp_settings,
+            )
         if new_start is None:
             return "Say when to move it to, like Saturday at 3 PM."
         new_start = _normalize_event_start(new_start)
@@ -253,16 +362,21 @@ def _handle_calendar(user_text: str) -> str:
 
     if _wants_calendar_create(low):
         console_ui.intent_line("Google Calendar → create event (natural language → API)")
+        parse_text = _prepare_calendar_datetime_text(user_text)
         extract = _ollama(
-            """Extract one calendar event from the user's words. Reply EXACTLY two lines:
-Line1: short title (max 60 chars), e.g. Math assignment due
-Line2: start time as ISO 8601 with timezone if possible, else date and time they said
-If they say tomorrow at 8 AM, use that date and time.""",
-            user_text,
+            """From the user's words, extract ONE calendar event.
+Reply EXACTLY two lines (no extra text):
+Line1: Short event title only (e.g. Math homework). Use their topic/homework if they said "about …".
+Line2: Start datetime in ISO 8601 WITH timezone offset if you can, e.g. 2026-04-06T08:00:00-07:00
+If they said tomorrow at 8 or eight in the morning, that is 8:00 AM local that day.""",
+            parse_text,
             max_tokens=128,
         )
         lines = [ln.strip() for ln in extract.split("\n") if ln.strip()]
-        title = lines[0] if lines else "Reminder"
+        title = (lines[0] if lines else "") or ""
+        fallback_title = _extract_calendar_title(user_text)
+        if not title or len(title) < 2 or title.lower() in ("reminder", "event", "calendar"):
+            title = fallback_title or "Reminder"
         start = None
         if len(lines) >= 2:
             try:
@@ -274,9 +388,14 @@ If they say tomorrow at 8 AM, use that date and time.""",
         if tz:
             dp_settings["TIMEZONE"] = tz
         if start is None and dateparser:
+            start = dateparser.parse(parse_text, settings=dp_settings)
+        if start is None and dateparser:
             start = dateparser.parse(user_text, settings=dp_settings)
         if start is None:
-            return "I couldn't parse the date and time. Try something like tomorrow at eight AM."
+            return (
+                "I couldn't parse the date and time. Say it like: "
+                "tomorrow at eight AM, or tomorrow at eight."
+            )
         start = _normalize_event_start(start)
         calendar.create_event(title.strip() or "Reminder", start)
         return f"Done, I've added {title.strip() or 'that'} to your calendar."

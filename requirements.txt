@@ -17,5 +17,6 @@ google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.1.0
 google-auth-httplib2>=0.2.0
 dateparser>=1.2.0
+tzlocal>=5.0
 
 # Ollama: run `ollama pull` for your model (see .env)
