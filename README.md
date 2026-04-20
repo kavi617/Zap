@@ -38,7 +38,6 @@ Ai_voice_assistant/
 │       └── router.py
 ├── assets/                   # heyzap.mp3, warning.mp3
 ├── data/                     # planner.db, warning_warned.json
-└── document/                 # index.html — full documentation (open in browser)
 ```
 
 ## Run
